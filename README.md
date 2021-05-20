@@ -22,4 +22,4 @@ For docker see the `docker-compose.yml`.
 
 ## API
 See `reserverations/query.py` for two examples on getting bookings and free seats.
-The central function is `search_bookings` in `reserverations/backend.py` which allows for easily getting a list of bookings of a time range. It can be filtered by daytime and rooms("areas").
+The central function is `search_bookings` in `reserverations/backend.py` which allows for easily getting a list of bookings of a time range. It can be filtered by daytime and location("areas").
