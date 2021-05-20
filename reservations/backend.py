@@ -14,10 +14,12 @@ class Backend:
 
         def login():
             session = requests_cache.CachedSession('sitzplatz-cache')
-            session.proxies.update({
-                'http': 'socks5h://127.0.0.1:9050',
-                'https': 'socks5h://127.0.0.1:9050'
-            })
+            proxy = os.environ.get('PROXY')
+            if proxy:
+                session.proxies.update({
+                    'http': proxy,
+                    'https': proxy
+                })
             login_url = urllib.parse.urljoin(base=base_url, url='admin.php')
             # Get session cookie
             session.get(login_url)
