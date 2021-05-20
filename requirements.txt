@@ -1,0 +1,6 @@
+python-dateutil
+beautifulsoup4~=4.9.3
+requests[socks]~=2.25.1
+urllib3~=1.26.4
+requests-cache~=0.6.3
+python-telegram-bot[socks]~=13.5
