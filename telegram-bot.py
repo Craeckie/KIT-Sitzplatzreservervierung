@@ -23,7 +23,10 @@ FREE_SEAT_MARKUP = ReplyKeyboardMarkup([
 ])
 
 def start(update, context):
-    context.bot.send_message(chat_id=update.effective_chat.id, text="Willkommen beim KIT-Sitzplatzreservierungsbot!")
+    context.bot.send_message(chat_id=update.effective_chat.id,
+                             text="Willkommen beim KIT-Sitzplatzreservierungsbot!\n" +
+                                  "Klicke auf die Knöpfe unten, um freie Plätze abzurufen",
+                             reply_markup=FREE_SEAT_MARKUP)
 def echo(update, context):
     day_delta = 0 if update.message.text == 'Heute' else \
                 1 if update.message.text == 'Morgen' else \
