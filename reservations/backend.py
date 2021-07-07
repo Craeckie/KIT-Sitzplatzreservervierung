@@ -113,9 +113,9 @@ class Backend:
 
         return times
 
-    def get_day_entries(self, date):
+    def get_day_entries(self, date, areas=None):
         entries = {}
-        for area in self.areas:
+        for area in areas if areas else self.areas:
             room_entries = self.get_room_entries(date, area['number'])
             entries.update({
                 area['name']: room_entries
@@ -125,7 +125,8 @@ class Backend:
     def search_bookings(self, start_day=datetime.datetime.today() + datetime.timedelta(days=1),
                         day_count=1,
                         state=None,
-                        daytimes=None):
+                        daytimes=None,
+                        areas=None):
         bookings = []
 
         def time_bookings(time_entries, daytime):
@@ -139,7 +140,7 @@ class Backend:
                     })
 
         for date in rrule.rrule(rrule.DAILY, count=day_count, dtstart=start_day):
-            day_entries = self.get_day_entries(date)
+            day_entries = self.get_day_entries(date, areas=areas)
             for room_name, room_entries in day_entries.items():
                 if daytimes is None:
                     for time_name, time_entries in room_entries.items():
