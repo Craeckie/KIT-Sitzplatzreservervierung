@@ -16,3 +16,5 @@ Optionally you can set a proxy:
 
 ## Run it!
 Run `python3 telegram-bot.py`
+
+For docker see the `docker-compose.yml`.
