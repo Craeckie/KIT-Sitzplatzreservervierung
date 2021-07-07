@@ -1,13 +1,17 @@
 import datetime
 import json
+import math
 import os
 import pickle
 import urllib
-from enum import Enum
+from enum import IntEnum
+from urllib.parse import urljoin
 
 import bs4
 import requests
 from dateutil import rrule
+
+from . import redis
 
 
 class Backend:
@@ -27,28 +31,25 @@ class Backend:
         b = bs4.BeautifulSoup(r.text, 'html.parser')
 
         area_div = b.find('div', id='dwm_areas')
-        areas = []
+        areas = {}
         for li in area_div.find_all('li'):
             name = li.text.strip()
             url = urllib.parse.urlparse(li.a.get('href'))
             params = urllib.parse.parse_qs(url.query)
             number = ''.join(params['area'])
-            areas.append({
-                'name': name,
-                'number': number
-            })
+            areas[number] = name
         return areas
 
     def login(self, user_id, user=None, password=None):
-        cookies_key = f'login-creds:{user_id}'
+        cookies_key = f'login-cookies:{user_id}'
         cookies_pickle = redis.get(cookies_key)
         cookies = pickle.loads(cookies_pickle) if cookies_pickle else None
 
         # Check if session still valid
 
         # Renew cookies using creds
+        creds_key = f'login-creds:{user_id}'
         if not user or not password:
-            creds_key = f'login-creds:{user_id}'
             creds_json = redis.get(creds_key)
             creds = json.loads(creds_json) if creds_json else None
             if creds:
@@ -82,9 +83,12 @@ class Backend:
                 return session.cookies
         return None
 
+    def get_day_url(self, date, area):
+        return urljoin(base=self.base_url,
+                             url=f'day.php?year={date.year}&month={date.month}&day={date.day}&area={area}')
+
     def get_room_entries(self, date, area, cookies=None):
-        url = urllib.parse.urljoin(base=self.base_url,
-                                   url=f'day.php?year={date.year}&month={date.month}&day={date.day}&area={area}')
+        url = self.get_day_url(date, area)
         session = requests.session()
         if cookies:
             session.cookies = cookies
@@ -128,6 +132,7 @@ class Backend:
 
                 label = labels[col_index]
                 row_entries.append({
+                    'area': area,
                     'seat': label[0],
                     'room_id': label[1],
                     'state': state,
@@ -140,10 +145,10 @@ class Backend:
 
     def get_day_entries(self, date, areas=None, cookies=None):
         entries = {}
-        for area in areas if areas else self.areas:
-            room_entries = self.get_room_entries(date, area['number'], cookies=cookies)
+        for area in areas if areas else [a for a in self.areas.keys()]:
+            room_entries = self.get_room_entries(date, area, cookies=cookies)
             entries.update({
-                area['name']: room_entries
+                area: room_entries
             })
         return entries
 
@@ -163,6 +168,7 @@ class Backend:
                         'daytime': daytime,
                         'seat': seat,
                         'room': room_name,
+                        'area': seat['area']
                     })
 
         for date in rrule.rrule(rrule.DAILY, count=day_count, dtstart=start_day):
@@ -174,11 +180,70 @@ class Backend:
                 else:
                     if isinstance(daytimes, Daytime):
                         daytimes = [daytimes]
+                    elif all(isinstance(d, int) for d in daytimes):
+                        daytimes = [Daytime(d) for d in daytimes]
                     for daytime in daytimes:
                         time_bookings(room_entries[daytime], daytime)
 
         return bookings
 
+    def book_seat(self, user_id, day_delta, daytime, room, seat, room_id, cookies):
+        session = requests.session()
+        session.cookies = cookies
+
+        date = datetime.datetime.today() + datetime.timedelta(days=int(day_delta))
+        creds_key = f'login-creds:{user_id}'
+        creds_json = redis.get(creds_key)
+        creds = json.loads(creds_json) if creds_json else None
+        user = creds['user']
+        data = {
+            'name': user,
+            'description': daytime_to_name(int(daytime)).lower() + '+',
+            'start_day': date.day,
+            'start_month': date.month,
+            'start_year': date.year,
+            'start_seconds': '43260',
+            'end_day': date.day,
+            'end_month': date.month,
+            'end_year': date.year,
+            'end_seconds': '43260',
+            'area': room,
+            'rooms[]': room_id,
+            'type': 'K',
+            'confirmed': {
+                '0': '1',
+                '1': '1'
+            },
+            'returl': self.get_day_url(date, room),
+            'create_by': "158066040087",
+            'rep_id': '0',
+            'edit_type': 'series'
+        }
+        data = {k: str(v) for k, v in data.items()}
+        res = session.get(
+            urljoin(self.base_url,
+                    f'edit_entry.php?area={room}&room={room_id}&period=0'
+                    f'&year={date.year}&month={date.month}&day={date.day}'))
+        res = session.post(urljoin(self.base_url, 'edit_entry_handler.php'), data={**data, 'ajax': '1'})
+        res = session.post(urljoin(self.base_url, 'edit_entry_handler.php'), data=data, allow_redirects=False)
+        if res.status_code == '301':
+            print(f"Erfolgreich gebucht: {data}")
+            return True
+        else:
+            return False
+
+        try:
+            res = json.loads(res.text)
+            if 'valid_booking' in res and res['valid_booking']:
+                print(f"Erfolgreich gebucht: {data}")
+                return True
+            else:
+                print(f"Buchen fehlgeschlagen: {data}")
+                return False
+
+        except:
+            print(f"Buchen fehlgeschlagen: {data}")
+            return False
 
 def daytime_to_name(daytime):
     if daytime == Daytime.MORNING:
@@ -190,14 +255,14 @@ def daytime_to_name(daytime):
     else:
         raise AttributeError('Invalid daytime: {daytime}')
 
-class State(Enum):
+class State(IntEnum):
     FREE = 1
     OCCUPIED = 2
     MINE = 3
     UNKNOWN = 4
 
 
-class Daytime(Enum):
+class Daytime(IntEnum):
     MORNING = 1
     AFTERNOON = 2
     EVENING = 3

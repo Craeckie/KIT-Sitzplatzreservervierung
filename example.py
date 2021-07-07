@@ -14,7 +14,7 @@ bookings = b.search_bookings(start_day=datetime.datetime.today() + datetime.time
                                    daytimes=daytimes)
 grouped = group_bookings(bookings, daytimes)
 
-for daytime, rooms in results.items():
+for daytime, rooms in grouped.items():
     print(daytime)
     for room, seats in rooms.items():
         print(f'{room}: {len(seats)}')
