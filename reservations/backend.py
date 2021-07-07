@@ -126,8 +126,12 @@ class Backend:
                         'writable' in classes and State.MINE or \
                         State.UNKNOWN
                 occupier = state in [State.FREE, State.MINE] and None or \
-                           'I' in classes and 'internal' or \
-                           'K' in classes and 'student' or \
+                           'I' in classes and 'Interne Buchungen' or \
+                           'K' in classes and 'KIT Studenten' or \
+                           'D' in classes and 'DHBW Studenten' or \
+                           'H' in classes and 'HsKa Studenten' or \
+                           'G' in classes and 'Private Buchungen' or \
+                           'P' in classes and 'Personal' or \
                            'special'
                 div = column.div
                 entry_id = div.attrs['data-id'] if 'data-id' in div.attrs else None

@@ -30,6 +30,7 @@ b = Backend(base_url)
 FREE_SEAT_MARKUP = ['Heute', 'Morgen', 'In 2 Tagen', 'In 3 Tagen']
 ACCOUNT_MARKUP = ['Reservierungen']
 LOGIN_MARKUP = ['Login']
+EXTRA_MARKUP = ['Statistiken']
 
 USERNAME, PASSWORD = range(2)
 
@@ -38,7 +39,7 @@ def check_login(update):
     user_id = update.message.from_user.id
     cookies = b.login(user_id)
     if cookies:
-        markup = ReplyKeyboardMarkup([FREE_SEAT_MARKUP, ACCOUNT_MARKUP])
+        markup = ReplyKeyboardMarkup([FREE_SEAT_MARKUP, ACCOUNT_MARKUP, EXTRA_MARKUP])
     else:
         markup = ReplyKeyboardMarkup([FREE_SEAT_MARKUP, LOGIN_MARKUP])
     return cookies, markup
@@ -150,6 +151,28 @@ def reservations(update: Update, context: CallbackContext):
                                   reply_markup=markup)
 
 
+def statistics(update: Update, context: CallbackContext):
+    cookies, markup = check_login(update)
+    msg = ''
+    for d in range(0, 3):
+        date = datetime.datetime.today() + datetime.timedelta(days=d)
+        bookings = b.search_bookings(
+            start_day=date,
+            state=State.OCCUPIED)
+        type_counts = {}
+        for booking in bookings:
+            occ_type = booking['seat']['occupier']
+            if occ_type in type_counts.keys():
+                type_counts[occ_type] += 1
+            else:
+                type_counts[occ_type] = 1
+        if msg:
+            msg += '\n\n'
+        msg += f'<b>{date.strftime(DATE_FORMAT)}</b>\n'
+        msg += '\n'.join(f'{k}: {v}' for k, v in type_counts.items())
+    update.message.reply_text(msg, reply_markup=markup,
+                              parse_mode=ParseMode.HTML)
+
 def format_seat_command(day_delta, daytime, booking, reserverd=False):
     prefix = 'C' if reserverd else 'B'
     return f"/{prefix}{day_delta}_{int(daytime)}_{booking['area']}_{booking['seat']['seat']}_{booking['seat']['room_id']}"
@@ -197,6 +220,7 @@ dispatcher.add_handler(CommandHandler('start', start))
 dispatcher.add_handler(MessageHandler(Filters.text(FREE_SEAT_MARKUP) & (~Filters.command), overview))
 dispatcher.add_handler(MessageHandler(Filters.command, booking))
 dispatcher.add_handler(MessageHandler(Filters.text(ACCOUNT_MARKUP), reservations))
+dispatcher.add_handler(MessageHandler(Filters.text(EXTRA_MARKUP), statistics))
 
 login_conv_handler = ConversationHandler(
     entry_points=[MessageHandler(Filters.text(LOGIN_MARKUP), login)],
@@ -218,6 +242,7 @@ def unknown_command(update: Update, context: CallbackContext):
 dispatcher.add_handler(MessageHandler(~Filters.text(FREE_SEAT_MARKUP)
                                       & ~Filters.text(ACCOUNT_MARKUP)
                                       & ~Filters.text(LOGIN_MARKUP)
+                                      & ~Filters.text(EXTRA_MARKUP)
                                       & ~Filters.command, unknown_command))
 
 updater.start_polling()
