@@ -129,6 +129,8 @@ class Backend:
                            'I' in classes and 'internal' or \
                            'K' in classes and 'student' or \
                            'special'
+                div = column.div
+                entry_id = div.attrs['data-id'] if 'data-id' in div.attrs else None
 
                 label = labels[col_index]
                 row_entries.append({
@@ -136,7 +138,8 @@ class Backend:
                     'seat': label[0],
                     'room_id': label[1],
                     'state': state,
-                    'occupier': occupier
+                    'occupier': occupier,
+                    'entry_id': entry_id
                 })
                 col_index += 1
             times[daytime] = row_entries
@@ -196,6 +199,7 @@ class Backend:
         creds_json = redis.get(creds_key)
         creds = json.loads(creds_json) if creds_json else None
         user = creds['user']
+        daytime = int(daytime)
         seconds = 43200 if daytime == Daytime.MORNING else \
                   43260 if daytime == Daytime.AFTERNOON else \
                   43320 if daytime == Daytime.EVENING else \
@@ -221,7 +225,7 @@ class Backend:
                 '1': '1'
             },
             'returl': self.get_day_url(date, room),
-            'create_by': "158066040087",
+            'create_by': user,
             'rep_id': '0',
             'edit_type': 'series'
         }
@@ -231,12 +235,14 @@ class Backend:
                     f'edit_entry.php?area={room}&room={room_id}&period=0'
                     f'&year={date.year}&month={date.month}&day={date.day}'))
         res = session.post(urljoin(self.base_url, 'edit_entry_handler.php'), data={**data, 'ajax': '1'})
+        check_result = res.json()
         res = session.post(urljoin(self.base_url, 'edit_entry_handler.php'), data=data, allow_redirects=False)
-        if res.status_code == '301':
+        if res.status_code == 302:
             print(f"Erfolgreich gebucht: {data}")
-            return True
+            return True, None
         else:
-            return False
+            return False, check_result['rules_broken'][0] \
+                if 'rules_broken' in check_result and check_result['rules_broken'] else None
 
         try:
             res = json.loads(res.text)
@@ -251,6 +257,28 @@ class Backend:
             print(f"Buchen fehlgeschlagen: {data}")
             return False
 
+    def cancel_reservation(self, user_id, entry_id, cookies):
+        session = requests.session()
+        session.cookies = cookies
+
+        creds_key = f'login-creds:{user_id}'
+        creds_json = redis.get(creds_key)
+        creds = json.loads(creds_json) if creds_json else None
+        user = creds['user']
+
+        now = datetime.datetime.now()
+        url = urljoin(self.base_url, 'del_entry.php?' +
+                                  f'id={entry_id}&series=0&returl=report.php?'
+                                  f'from_day={now.day}&from_month={now.month}&from_year={now.year}'
+                                  f'&to_day=1&to_month=12&to_year=2030'
+                                  f'&areamatch=&roommatch=&namematch=&descrmatch=&creatormatch={user}'
+                                  f'&match_private=2&match_confirmed=2'
+                                  f'&output=0&output_format=0&sortby=r&sumby=d&phase=2&datatable=1')
+        res = session.get(url, allow_redirects=False)
+        if res.status_code == 302:
+            return True, None
+        else:
+            return False, None
 
 def daytime_to_name(daytime):
     if daytime == Daytime.MORNING:

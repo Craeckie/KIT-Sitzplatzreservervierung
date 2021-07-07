@@ -1,4 +1,5 @@
 import datetime
+import locale
 import math
 import os
 import logging
@@ -16,6 +17,9 @@ from reservations.query import group_bookings, get_own_bookings
 logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
                     level=logging.INFO)
 
+locale.setlocale(locale.LC_ALL, 'de_DE.UTF-8')
+DATE_FORMAT = "%a, %d.%m."
+
 updater = Updater(token=os.environ.get('BOT_TOKEN'))
 dispatcher = updater.dispatcher
 
@@ -28,6 +32,7 @@ ACCOUNT_MARKUP = ['Reservierungen']
 LOGIN_MARKUP = ['Login']
 
 USERNAME, PASSWORD = range(2)
+
 
 def check_login(update):
     user_id = update.message.from_user.id
@@ -53,10 +58,11 @@ def overview(update, context):
                 1 if text == 'Morgen' else \
                 2 if text == 'In 2 Tagen' else \
                 3
-    bookings = b.search_bookings(start_day=datetime.datetime.today() + datetime.timedelta(days=day_delta),
+    date = datetime.datetime.today() + datetime.timedelta(days=day_delta)
+    bookings = b.search_bookings(start_day=date,
                                  state=State.FREE)
     grouped = group_bookings(bookings, b.areas)
-    msg = ''
+    msg = f'<u>{date.strftime(DATE_FORMAT)}</u>'
     for daytime, rooms in grouped.items():
         msg += f'<pre>{daytime_to_name(daytime)}</pre>\n'
         for room, seats in rooms.items():
@@ -81,12 +87,12 @@ def booking(update, context):
         if cookies:
             user_id = update.message.from_user.id
             values = m.groupdict()
-            success = b.book_seat(user_id=user_id,
+            success, error = b.book_seat(user_id=user_id,
                         cookies=cookies,
                         **values)
             update.message.reply_text(
                 'Erfolgreich gebucht!' if success else
-                'Buchung ist leider fehlgeschlagen',
+                'Buchung ist leider fehlgeschlagen.' + (f'\nFehler: {error}' if error else ''),
                               reply_markup=markup)
         else:
             update.message.reply_text('Zuerst musst du dich einloggen. Klicke dazu unten auf Login.',
@@ -109,22 +115,33 @@ def booking(update, context):
             context.bot.send_message(chat_id=update.effective_chat.id, text='Wähle einen Sitzplatz', parse_mode='HTML',
                                      reply_markup=ReplyKeyboardMarkup(seat_markup))
         else:
-            context.bot.send_message(chat_id=update.effective_chat.id, text='Unbekannter Befehl', parse_mode='HTML',
-                                     reply_markup=FREE_SEAT_MARKUP)
+            m = re.match('^/C(?P<entry_id>[0-9]+)$', text)
+            if m:
+                entry_id = m.group('entry_id')
+                user_id = update.message.from_user.id
+                cookies, markup = check_login(update)
+                success, error = b.cancel_reservation(user_id, entry_id, cookies)
+                update.message.reply_text('Reservierung erfolgreich gelöscht.' if success else
+                                          'Löschen fehlgeschlagen.' + (f'\nFehler: {error}' if error else ''),
+                                          reply_markup=markup)
+            else:
+                context.bot.send_message(chat_id=update.effective_chat.id, text='Unbekannter Befehl', parse_mode='HTML',
+                                         reply_markup=FREE_SEAT_MARKUP)
 
 def reservations(update: Update, context: CallbackContext):
     cookies, markup = check_login(update)
     if cookies:
         bookings = get_own_bookings(b, cookies)
         if bookings:
-            msg = 'Deine Reservierungen:\n'
+            msg = '<u>Deine Reservierungen</u>\n'
             date_groups = groupby(bookings, key=lambda b: b['date'])
             for date, bookings in date_groups:
-                msg += f'<pre>{date.date()}</pre>\n'
+
+                msg += f'<pre>{date.strftime(DATE_FORMAT)}</pre>\n'
                 for booking in bookings:
                     msg += f"{daytime_to_name(booking['daytime'])} {b.areas[booking['room']]}: " \
                            f"Platz {booking['seat']['seat']} " \
-                           f"{format_seat_command(0, booking['daytime'], booking, reserverd=True)}\n"
+                           f"/C{booking['seat']['entry_id']}\n"
         else:
             msg = 'Du hast aktuell keine Reservierungen.'
         update.message.reply_text(msg, parse_mode=ParseMode.HTML)
