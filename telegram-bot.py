@@ -81,9 +81,13 @@ def booking(update, context):
         if cookies:
             user_id = update.message.from_user.id
             values = m.groupdict()
-            b.book_seat(user_id=user_id,
+            success = b.book_seat(user_id=user_id,
                         cookies=cookies,
                         **values)
+            update.message.reply_text(
+                'Erfolgreich gebucht!' if success else
+                'Buchung ist leider fehlgeschlagen',
+                              reply_markup=markup)
         else:
             update.message.reply_text('Zuerst musst du dich einloggen. Klicke dazu unten auf Login.',
                               reply_markup=markup)
