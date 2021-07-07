@@ -62,13 +62,13 @@ class Backend:
             session = requests.session()
             session.get(login_url)
             login_res = session.post(login_url,
-                                          data={
-                                              'NewUserName': user,
-                                              'NewUserPassword': password,
-                                              'returl': self.base_url,
-                                              'TargetURL': self.base_url,
-                                              'Action': 'SetName'
-                                          }, allow_redirects=False)
+                                     data={
+                                         'NewUserName': user,
+                                         'NewUserPassword': password,
+                                         'returl': self.base_url,
+                                         'TargetURL': self.base_url,
+                                         'Action': 'SetName'
+                                     }, allow_redirects=False)
             if login_res.status_code == 200:
                 print(f'Login failed: {user}')
                 print(login_res.text)
@@ -85,7 +85,7 @@ class Backend:
 
     def get_day_url(self, date, area):
         return urljoin(base=self.base_url,
-                             url=f'day.php?year={date.year}&month={date.month}&day={date.day}&area={area}')
+                       url=f'day.php?year={date.year}&month={date.month}&day={date.day}&area={area}')
 
     def get_room_entries(self, date, area, cookies=None):
         url = self.get_day_url(date, area)
@@ -196,17 +196,23 @@ class Backend:
         creds_json = redis.get(creds_key)
         creds = json.loads(creds_json) if creds_json else None
         user = creds['user']
+        seconds = 43200 if daytime == Daytime.MORNING else \
+                  43260 if daytime == Daytime.AFTERNOON else \
+                  43320 if daytime == Daytime.EVENING else \
+                  0
+        if seconds == 0:
+            raise AttributeError('Invalid daytime!')
         data = {
             'name': user,
             'description': daytime_to_name(int(daytime)).lower() + '+',
             'start_day': date.day,
             'start_month': date.month,
             'start_year': date.year,
-            'start_seconds': '43260',
+            'start_seconds': str(seconds),
             'end_day': date.day,
             'end_month': date.month,
             'end_year': date.year,
-            'end_seconds': '43260',
+            'end_seconds': str(seconds),
             'area': room,
             'rooms[]': room_id,
             'type': 'K',
@@ -245,6 +251,7 @@ class Backend:
             print(f"Buchen fehlgeschlagen: {data}")
             return False
 
+
 def daytime_to_name(daytime):
     if daytime == Daytime.MORNING:
         return 'Vormittags'
@@ -254,6 +261,7 @@ def daytime_to_name(daytime):
         return 'Abends'
     else:
         raise AttributeError('Invalid daytime: {daytime}')
+
 
 class State(IntEnum):
     FREE = 1
