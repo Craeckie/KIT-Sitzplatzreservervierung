@@ -17,17 +17,18 @@ from . import redis
 class Backend:
     def __init__(self, base_url):
         self.base_url = base_url
-        proxy = os.environ.get('PROXY')
-        if proxy:
-            self.session.proxies.update({
-                'http': proxy,
-                'https': proxy
-            })
+        self.proxy = os.environ.get('PROXY')
 
         self.areas = self.get_areas()
 
     def get_areas(self):
-        r = requests.get(self.base_url)
+        session = requests.session()
+        if self.proxy:
+            session.proxies.update({
+                'http': self.proxy,
+                'https': self.proxy
+            })
+        r = session.get(self.base_url)
         b = bs4.BeautifulSoup(r.text, 'html.parser')
 
         area_div = b.find('div', id='dwm_areas')
@@ -60,6 +61,11 @@ class Backend:
 
             # Create new session and get the cookies
             session = requests.session()
+            if self.proxy:
+                session.proxies.update({
+                    'http': self.proxy,
+                    'https': self.proxy
+                })
             session.get(login_url)
             login_res = session.post(login_url,
                                      data={
@@ -90,6 +96,11 @@ class Backend:
     def get_room_entries(self, date, area, cookies=None):
         url = self.get_day_url(date, area)
         session = requests.session()
+        if self.proxy:
+            session.proxies.update({
+                'http': self.proxy,
+                'https': self.proxy
+            })
         if cookies:
             session.cookies = cookies
         r = session.get(url)
@@ -196,6 +207,11 @@ class Backend:
 
     def book_seat(self, user_id, day_delta, daytime, room, seat, room_id, cookies):
         session = requests.session()
+        if self.proxy:
+            session.proxies.update({
+                'http': self.proxy,
+                'https': self.proxy
+            })
         session.cookies = cookies
 
         date = datetime.datetime.today() + datetime.timedelta(days=int(day_delta))
@@ -263,6 +279,11 @@ class Backend:
 
     def cancel_reservation(self, user_id, entry_id, cookies):
         session = requests.session()
+        if self.proxy:
+            session.proxies.update({
+                'http': self.proxy,
+                'https': self.proxy
+            })
         session.cookies = cookies
 
         creds_key = f'login-creds:{user_id}'
