@@ -160,16 +160,32 @@ def statistics(update: Update, context: CallbackContext):
             start_day=date,
             state=State.OCCUPIED)
         type_counts = {}
+        room_counts = {}
         for booking in bookings:
-            occ_type = booking['seat']['occupier']
+            seat = booking['seat']
+            occ_type = seat['occupier']
             if occ_type in type_counts.keys():
                 type_counts[occ_type] += 1
             else:
                 type_counts[occ_type] = 1
+            room_id = int(seat['area'])
+            room_name = 'KIT' if room_id in [19,20,21,34,35,37] else \
+                                           'DHBW' if room_id == 32 else \
+                                           'HsKa' if room_id in [28,29] else \
+                                           'KIT Nord' if room_id == 26 else \
+                                           'Unbekannt'
+            if room_name in room_counts.keys():
+                room_counts[room_name] += 1
+            else:
+                room_counts[room_name] = 1
         if msg:
             msg += '\n\n'
         msg += f'<b>{date.strftime(DATE_FORMAT)}</b>\n'
-        msg += '\n'.join(f'{k}: {v}' for k, v in type_counts.items())
+        msg += f'Insgesamt: {sum(type_counts.values())}\n'
+        msg += f'<u>Nach Uni/Hochschule:</u>\n'
+        msg += '\n'.join(f'{t}: {count}' for t, count in type_counts.items())
+        msg += f'\n\n<u>Nach Raum:</u>\n'
+        msg += '\n'.join(f'{room}: {count}' for room, count in room_counts.items())
     update.message.reply_text(msg, reply_markup=markup,
                               parse_mode=ParseMode.HTML)
 
