@@ -45,8 +45,18 @@ class Backend:
         cookies_key = f'login-cookies:{user_id}'
         cookies_pickle = redis.get(cookies_key)
         cookies = pickle.loads(cookies_pickle) if cookies_pickle else None
+        session = requests.session()
+        if self.proxy:
+            session.proxies.update({
+                'http': self.proxy,
+                'https': self.proxy
+            })
 
         # Check if session still valid
+        session.cookies = cookies
+        res = session.get(urljoin(self.base_url, 'admin.php'))
+        if 'Buchungsübersicht von' in res.text:
+            return session.cookies
 
         # Renew cookies using creds
         creds_key = f'login-creds:{user_id}'
@@ -60,7 +70,6 @@ class Backend:
             login_url = urllib.parse.urljoin(base=self.base_url, url='admin.php')
 
             # Create new session and get the cookies
-            session = requests.session()
             if self.proxy:
                 session.proxies.update({
                     'http': self.proxy,

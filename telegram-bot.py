@@ -8,7 +8,7 @@ from itertools import groupby
 
 from telegram.ext import Updater, ConversationHandler, CallbackContext
 from telegram.ext import CommandHandler, MessageHandler, Filters
-from telegram import ReplyKeyboardMarkup, ReplyKeyboardRemove, Update, ParseMode
+from telegram import ReplyKeyboardMarkup, ReplyKeyboardRemove, Update, ParseMode, ChatAction
 
 from reservations import redis
 from reservations.backend import Backend, Daytime, daytime_to_name, State
@@ -45,6 +45,7 @@ def check_login(update):
     return cookies, markup
 
 def start(update, context):
+    update.message.reply_chat_action(ChatAction.TYPING)
     cookies, markup = check_login(update)
     context.bot.send_message(chat_id=update.effective_chat.id,
                              text="Willkommen beim KIT-Sitzplatzreservierungsbot!\n" +
@@ -53,6 +54,7 @@ def start(update, context):
 
 
 def overview(update, context):
+    update.message.reply_chat_action(ChatAction.TYPING)
     cookies, markup = check_login(update)
     text = update.message.text
     day_delta = 0 if text == 'Heute' else \
@@ -62,6 +64,7 @@ def overview(update, context):
     date = datetime.datetime.today() + datetime.timedelta(days=day_delta)
     bookings = b.search_bookings(start_day=date,
                                  state=State.FREE)
+    update.message.reply_chat_action(ChatAction.TYPING)
     grouped = group_bookings(bookings, b.areas)
     msg = f'<u>{date.strftime(DATE_FORMAT)}</u>'
     for daytime, rooms in grouped.items():
@@ -81,6 +84,7 @@ def overview(update, context):
 
 
 def booking(update, context):
+    update.message.reply_chat_action(ChatAction.TYPING)
     text = update.message.text
     m = re.match('^/B(?P<day_delta>[0-9])_(?P<daytime>[0-9])_(?P<room>[0-9]+)_(?P<seat>[A-Z0-9]+)_(?P<room_id>[A-Z0-9]+)$', text)
     if m:
@@ -130,7 +134,9 @@ def booking(update, context):
                                          reply_markup=FREE_SEAT_MARKUP)
 
 def reservations(update: Update, context: CallbackContext):
+    update.message.reply_chat_action(ChatAction.TYPING)
     cookies, markup = check_login(update)
+    update.message.reply_chat_action(ChatAction.TYPING)
     if cookies:
         bookings = get_own_bookings(b, cookies)
         if bookings:
@@ -152,9 +158,11 @@ def reservations(update: Update, context: CallbackContext):
 
 
 def statistics(update: Update, context: CallbackContext):
+    update.message.reply_chat_action(ChatAction.TYPING)
     cookies, markup = check_login(update)
+    update.message.reply_chat_action(ChatAction.TYPING)
     msg = ''
-    for d in range(0, 3):
+    for d in range(0, 4):
         date = datetime.datetime.today() + datetime.timedelta(days=d)
         bookings = b.search_bookings(
             start_day=date,
@@ -181,9 +189,10 @@ def statistics(update: Update, context: CallbackContext):
         if msg:
             msg += '\n\n'
         msg += f'<b>{date.strftime(DATE_FORMAT)}</b>\n'
-        msg += f'Insgesamt: {sum(type_counts.values())}\n'
+        total_count = sum(type_counts.values())
+        msg += f'Insgesamt: {total_count}\n'
         msg += f'<u>Nach Uni/Hochschule:</u>\n'
-        msg += '\n'.join(f'{t}: {count}' for t, count in type_counts.items())
+        msg += '\n'.join(f'{t}: {count} ({round(count/total_count*100,1)}%)' for t, count in type_counts.items())
         msg += f'\n\n<u>Nach Raum:</u>\n'
         msg += '\n'.join(f'{room}: {count}' for room, count in room_counts.items())
     update.message.reply_text(msg, reply_markup=markup,
@@ -212,6 +221,7 @@ def login_username(update: Update, context: CallbackContext):
     return PASSWORD
 
 def login_password(update: Update, context: CallbackContext):
+    update.message.reply_chat_action(ChatAction.TYPING)
     user_id = update.message.from_user.id
     username = redis.get(get_login_key(update)).decode()
     redis.delete(get_login_key(update))
