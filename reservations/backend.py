@@ -264,7 +264,11 @@ class Backend:
                     f'edit_entry.php?area={room}&room={room_id}&period=0'
                     f'&year={date.year}&month={date.month}&day={date.day}'))
         res = session.post(urljoin(self.base_url, 'edit_entry_handler.php'), data={**data, 'ajax': '1'})
-        check_result = res.json()
+        check_result = None
+        try:
+            check_result = res.json()
+        except:
+            pass
         res = session.post(urljoin(self.base_url, 'edit_entry_handler.php'), data=data, allow_redirects=False)
         if res.status_code == 302:
             print(f"Erfolgreich gebucht: {data}")
@@ -274,7 +278,7 @@ class Backend:
 
             content = page.find(id="contents")
             msg = check_result['rules_broken'][0] \
-                if 'rules_broken' in check_result and check_result['rules_broken'] else None
+                if check_result and 'rules_broken' in check_result and check_result['rules_broken'] else None
             if not msg:
                 msg = content.get_text() if content else None
 
