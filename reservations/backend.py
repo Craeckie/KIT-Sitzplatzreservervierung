@@ -270,8 +270,15 @@ class Backend:
             print(f"Erfolgreich gebucht: {data}")
             return True, None
         else:
-            return False, check_result['rules_broken'][0] \
+            page = bs4.BeautifulSoup(res.text, 'html.parser')
+
+            content = page.find(id="contents")
+            msg = check_result['rules_broken'][0] \
                 if 'rules_broken' in check_result and check_result['rules_broken'] else None
+            if not msg:
+                msg = content.get_text() if content else None
+
+            return False, msg
 
         try:
             res = json.loads(res.text)
