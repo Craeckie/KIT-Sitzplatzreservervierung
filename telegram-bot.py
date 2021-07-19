@@ -30,7 +30,7 @@ b = Backend(base_url)
 FREE_SEAT_MARKUP = ['Heute', 'Morgen', 'In 2 Tagen', 'In 3 Tagen']
 ACCOUNT_MARKUP = ['Reservierungen']
 LOGIN_MARKUP = ['Login']
-EXTRA_MARKUP = ['Statistiken']
+EXTRA_MARKUP = ['Zeiten', 'Statistiken']
 
 USERNAME, PASSWORD = range(2)
 
@@ -66,7 +66,7 @@ def overview(update, context):
                                  state=State.FREE)
     update.message.reply_chat_action(ChatAction.TYPING)
     grouped = group_bookings(bookings, b.areas)
-    msg = f'<u>{date.strftime(DATE_FORMAT)}</u>'
+    msg = f'<b>{date.strftime(DATE_FORMAT)}</b>\n'
     for daytime, rooms in grouped.items():
         msg += f'<pre>{daytime_to_name(daytime)}</pre>\n'
         for room, seats in rooms.items():
@@ -86,12 +86,13 @@ def overview(update, context):
 def booking(update, context):
     update.message.reply_chat_action(ChatAction.TYPING)
     text = update.message.text
-    m = re.match('^/B(?P<day_delta>[0-9])_(?P<daytime>[0-9])_(?P<room>[0-9]+)_(?P<seat>[A-Z0-9]+)_(?P<room_id>[A-Z0-9]+)$', text)
+    m = re.match('^/B(?P<day_delta>[0-9])_(?P<daytime>[0-9])_(?P<room>[0-9]+)_(?P<room_id>[A-Z0-9]+)_(?P<seat>[A-Z0-9_]+)$', text)
     if m:
         cookies, markup = check_login(update)
         if cookies:
             user_id = update.message.from_user.id
             values = m.groupdict()
+            values['seat'] = values['seat'].replace('_', ' ')
             success, error = b.book_seat(user_id=user_id,
                         cookies=cookies,
                         **values)
@@ -157,50 +158,57 @@ def reservations(update: Update, context: CallbackContext):
                                   reply_markup=markup)
 
 
-def statistics(update: Update, context: CallbackContext):
+def extras(update: Update, context: CallbackContext):
     update.message.reply_chat_action(ChatAction.TYPING)
     cookies, markup = check_login(update)
     update.message.reply_chat_action(ChatAction.TYPING)
-    msg = ''
-    for d in range(0, 4):
-        date = datetime.datetime.today() + datetime.timedelta(days=d)
-        bookings = b.search_bookings(
-            start_day=date,
-            state=State.OCCUPIED)
-        type_counts = {}
-        room_counts = {}
-        for booking in bookings:
-            seat = booking['seat']
-            occ_type = seat['occupier']
-            if occ_type in type_counts.keys():
-                type_counts[occ_type] += 1
-            else:
-                type_counts[occ_type] = 1
-            room_id = int(seat['area'])
-            room_name = 'KIT' if room_id in [19,20,21,34,35,37] else \
-                                           'DHBW' if room_id == 32 else \
-                                           'HsKa' if room_id in [28,29] else \
-                                           'KIT Nord' if room_id == 26 else \
-                                           'Unbekannt'
-            if room_name in room_counts.keys():
-                room_counts[room_name] += 1
-            else:
-                room_counts[room_name] = 1
-        if msg:
-            msg += '\n\n'
-        msg += f'<b>{date.strftime(DATE_FORMAT)}</b>\n'
-        total_count = sum(type_counts.values())
-        msg += f'Insgesamt: {total_count}\n'
-        msg += f'<u>Nach Uni/Hochschule:</u>\n'
-        msg += '\n'.join(f'{t}: {count} ({round(count/total_count*100,1)}%)' for t, count in type_counts.items())
-        msg += f'\n\n<u>Nach Raum:</u>\n'
-        msg += '\n'.join(f'{room}: {count}' for room, count in room_counts.items())
-    update.message.reply_text(msg, reply_markup=markup,
-                              parse_mode=ParseMode.HTML)
+    if update.message.text == 'Zeiten':
+        html = str(b.get_times())
+        print(html)
+        update.message.reply_text(html, reply_markup=markup,
+                                  parse_mode=ParseMode.HTML)
+    elif update.message.text == 'Statistiken':
+        msg = ''
+        for d in range(0, 4):
+            date = datetime.datetime.today() + datetime.timedelta(days=d)
+            bookings = b.search_bookings(
+                start_day=date,
+                state=State.OCCUPIED)
+            type_counts = {}
+            room_counts = {}
+            for booking in bookings:
+                seat = booking['seat']
+                occ_type = seat['occupier']
+                if occ_type in type_counts.keys():
+                    type_counts[occ_type] += 1
+                else:
+                    type_counts[occ_type] = 1
+                room_id = int(seat['area'])
+                room_name = 'KIT' if room_id in [19,20,21,34,35,37] else \
+                                               'DHBW' if room_id == 32 else \
+                                               'HsKa' if room_id in [28,29] else \
+                                               'KIT Nord' if room_id == 26 else \
+                                               'Unbekannt'
+                if room_name in room_counts.keys():
+                    room_counts[room_name] += 1
+                else:
+                    room_counts[room_name] = 1
+            if msg:
+                msg += '\n\n'
+            msg += f'<b>{date.strftime(DATE_FORMAT)}</b>\n'
+            total_count = sum(type_counts.values())
+            msg += f'Insgesamt: {total_count}\n'
+            msg += f'<u>Nach Uni/Hochschule:</u>\n'
+            msg += '\n'.join(f'{t}: {count} ({round(count/total_count*100,1)}%)' for t, count in type_counts.items())
+            msg += f'\n\n<u>Nach Raum:</u>\n'
+            msg += '\n'.join(f'{room}: {count}' for room, count in room_counts.items())
+        update.message.reply_text(msg, reply_markup=markup,
+                                  parse_mode=ParseMode.HTML)
 
 def format_seat_command(day_delta, daytime, booking, reserverd=False):
     prefix = 'C' if reserverd else 'B'
-    return f"/{prefix}{day_delta}_{int(daytime)}_{booking['area']}_{booking['seat']['seat']}_{booking['seat']['room_id']}"
+    seat = booking['seat']['seat'].replace(' ', '_')
+    return f"/{prefix}{day_delta}_{int(daytime)}_{booking['area']}_{seat}_{booking['seat']['room_id']}"
 
 def get_login_key(update):
     user_id = update.message.from_user.id
@@ -246,7 +254,7 @@ dispatcher.add_handler(CommandHandler('start', start))
 dispatcher.add_handler(MessageHandler(Filters.text(FREE_SEAT_MARKUP) & (~Filters.command), overview))
 dispatcher.add_handler(MessageHandler(Filters.command, booking))
 dispatcher.add_handler(MessageHandler(Filters.text(ACCOUNT_MARKUP), reservations))
-dispatcher.add_handler(MessageHandler(Filters.text(EXTRA_MARKUP), statistics))
+dispatcher.add_handler(MessageHandler(Filters.text(EXTRA_MARKUP), extras))
 
 login_conv_handler = ConversationHandler(
     entry_points=[MessageHandler(Filters.text(LOGIN_MARKUP), login)],

@@ -41,6 +41,31 @@ class Backend:
             areas[number] = name
         return areas
 
+    def get_times(self):
+        session = requests.session()
+        if self.proxy:
+            session.proxies.update({
+                'http': self.proxy,
+                'https': self.proxy
+            })
+        r = session.get(self.base_url)
+        b = bs4.BeautifulSoup(r.text, 'html.parser')
+
+        time_div = b.find('font', style='color: #000000')
+        print([tag.string for tag in time_div.children])
+        strings = time_div.find_all(lambda tag:
+                                 tag.string or
+                                 tag.name == 'a',
+                                 text=True)
+        print(strings)
+        for tag in time_div.contents:
+            print(f'{tag}')
+        return '\n'.join([
+            str(tag) if isinstance(tag, bs4.element.Tag) else tag.string.strip()
+            for tag in time_div.contents
+                if (not tag.name or tag.name not in ['br', 'font'])
+                and tag.string.strip()])
+
     def login(self, user_id, user=None, password=None):
         cookies_key = f'login-cookies:{user_id}'
         cookies_pickle = redis.get(cookies_key)
