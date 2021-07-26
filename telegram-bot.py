@@ -49,7 +49,8 @@ def start(update, context):
     cookies, markup = check_login(update)
     context.bot.send_message(chat_id=update.effective_chat.id,
                              text="Willkommen beim KIT-Sitzplatzreservierungsbot!\n" +
-                                  "Klicke auf die Knöpfe unten, um freie Plätze abzurufen",
+                                  "Klicke auf die Knöpfe unten, um freie Plätze abzurufen.\n"
+                                  "Um Plätze zu buchen musst du dich zuerst einloggen. Klicke dazu unten auf Login.",
                              reply_markup=markup)
 
 
@@ -238,7 +239,7 @@ def login_password(update: Update, context: CallbackContext):
     if cookies:
         update.message.reply_text('Erfolgreich eingeloggt!\n'
                                   'Die Nachrichten mit deinen Login-Daten kannst du jetzt löschen.',
-                                  reply_markup=ReplyKeyboardMarkup([FREE_SEAT_MARKUP,ACCOUNT_MARKUP]))
+                                  reply_markup=ReplyKeyboardMarkup([FREE_SEAT_MARKUP, ACCOUNT_MARKUP, EXTRA_MARKUP]))
     else:
         update.message.reply_text('Login fehlgeschlagen :(', reply_markup=ReplyKeyboardMarkup([FREE_SEAT_MARKUP,LOGIN_MARKUP]))
 

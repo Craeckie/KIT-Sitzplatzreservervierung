@@ -78,7 +78,8 @@ class Backend:
             })
 
         # Check if session still valid
-        session.cookies = cookies
+        if cookies:
+            session.cookies = cookies
         res = session.get(urljoin(self.base_url, 'admin.php'))
         if 'Buchungsübersicht von' in res.text:
             return session.cookies
