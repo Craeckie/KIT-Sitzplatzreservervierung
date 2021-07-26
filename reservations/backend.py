@@ -330,9 +330,7 @@ class Backend:
             })
         session.cookies = cookies
 
-        creds_key = f'login-creds:{user_id}'
-        creds_json = redis.get(creds_key)
-        creds = json.loads(creds_json) if creds_json else None
+        creds = get_user_creds(user_id)
         user = creds['user']
 
         now = datetime.datetime.now()
@@ -349,6 +347,87 @@ class Backend:
         else:
             return False, None
 
+    def get_reservations(self, user_id, cookies):
+        url = urljoin(self.base_url, 'report.php')
+        session = requests.session()
+        if self.proxy:
+            session.proxies.update({
+                'http': self.proxy,
+                'https': self.proxy
+            })
+        session.cookies = cookies
+
+        creds = get_user_creds(user_id)
+        user = creds['user']
+
+        now = datetime.datetime.now()
+        end = datetime.datetime(year=2030, month=12, day=1)
+        res = session.get(url,
+                    params={
+                        'from_day': now.day,
+                        'from_month': now.month,
+                        'from_year': now.year,
+                        'to_day': end.day,
+                        'to_month': end.month,
+                        'to_year': end.year,
+                        'areamatch': '',
+                        'roommatch': '',
+                        'namematch': '',
+                        'descrmatch': '',
+                        'creatormatch': user,
+                        'match_private': 2,
+                        'match_confirmed': 2,
+                        'output': 0,
+                        'output_format': 0,
+                        'sortby': 'd',
+                        'sumby': 'd',
+                        'datatable': 1,
+                        'phase': "2,2",
+                        'ajax': 1,
+                        '_': now.timestamp()
+                    },
+                          headers={
+                              'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; rv:78.0) Gecko/20100101 Firefox/78.0',
+                              'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
+                              'Accept-Language': 'de_DE,en;q=0.5'
+                          })
+        if res.status_code != 200:
+            return None
+
+        data = json.loads(res.text)
+        entries = []
+        for j_entries in data['aaData']:
+            entry = {}
+            links = j_entries[0]
+            b = bs4.BeautifulSoup(links, 'html.parser')
+            entry['id'] = b.a.attrs['data-id']
+            entry['room'] = j_entries[1]
+            entry['seat'] = j_entries[2]
+
+            b = bs4.BeautifulSoup(j_entries[3], 'html.parser')
+            entry['date'] = b.get_text().title()
+            entries.append(entry)
+        return entries
+
+
+        # b = bs4.BeautifulSoup(res.text, 'html.parser')
+        # table = b.find(id="report_table")
+
+        # rows = [r for r in table.tbody.children
+        #         if type(r) == bs4.element.Tag]
+        # entries = []
+        # for row in rows:
+        #     entry = {}
+        #     columns = row.find_all('td')
+        #     entry_links = columns[0].a
+        #     entry['id'] = entry_links.attrs['data-id']
+        #     entry['room'] = columns[1].get_text()
+        #     entry['seat'] = columns[2].get_text()
+        #     entry['date'] = columns[3].get_text()
+        #     entries.append(entry)
+        # return entries
+
+
 def daytime_to_name(daytime):
     if daytime == Daytime.MORNING:
         return 'Vormittags'
@@ -358,6 +437,12 @@ def daytime_to_name(daytime):
         return 'Abends'
     else:
         raise AttributeError('Invalid daytime: {daytime}')
+
+def get_user_creds(user_id):
+    creds_key = f'login-creds:{user_id}'
+    creds_json = redis.get(creds_key)
+    creds = json.loads(creds_json) if creds_json else None
+    return creds
 
 
 class State(IntEnum):

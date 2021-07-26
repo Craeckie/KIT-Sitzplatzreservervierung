@@ -140,17 +140,32 @@ def reservations(update: Update, context: CallbackContext):
     cookies, markup = check_login(update)
     update.message.reply_chat_action(ChatAction.TYPING)
     if cookies:
-        bookings = get_own_bookings(b, cookies)
-        if bookings:
-            msg = '<u>Deine Reservierungen</u>\n'
-            date_groups = groupby(bookings, key=lambda b: b['date'])
-            for date, bookings in date_groups:
+        # bookings = get_own_bookings(b, cookies)
+        # if bookings:
+        #     msg = '<u>Deine Reservierungen</u>\n'
+        #     date_groups = groupby(bookings, key=lambda b: b['date'])
+        #     for date, bookings in date_groups:
 
-                msg += f'<pre>{date.strftime(DATE_FORMAT)}</pre>\n'
-                for booking in bookings:
-                    msg += f"{daytime_to_name(booking['daytime'])} {b.areas[booking['room']]}: " \
-                           f"Platz {booking['seat']['seat']} " \
-                           f"/C{booking['seat']['entry_id']}\n"
+        #         msg += f'<pre>{date.strftime(DATE_FORMAT)}</pre>\n'
+        #         for booking in bookings:
+        #             msg += f"{daytime_to_name(booking['daytime'])} {b.areas[booking['room']]}: " \
+        #                    f"Platz {booking['seat']['seat']} " \
+        #                    f"/C{booking['seat']['entry_id']}\n"
+        bookings = b.get_reservations(update.message.from_user.id, cookies)
+        if bookings is None:
+            msg = 'Es gab einen Fehler beim Öffnen der Reservierungen'
+        elif bookings:
+            msg = '<u>Deine Reservierungen</u>\n'
+            last_date = None
+            for booking in bookings:
+                cur_date = booking['date']
+                if cur_date != last_date:
+                    msg += f'<pre>{cur_date}</pre>\n'
+                msg += f"{booking['room']}: " \
+                       f"Platz {booking['seat']} " \
+                       f"/C{booking['id']}\n"
+                last_date = cur_date
+
         else:
             msg = 'Du hast aktuell keine Reservierungen.'
         update.message.reply_text(msg, parse_mode=ParseMode.HTML)
