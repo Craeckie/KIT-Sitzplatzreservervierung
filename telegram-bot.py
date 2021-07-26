@@ -35,9 +35,9 @@ EXTRA_MARKUP = ['Zeiten', 'Statistiken']
 USERNAME, PASSWORD = range(2)
 
 
-def check_login(update):
+def check_login(update, login_required=False):
     user_id = update.message.from_user.id
-    cookies = b.login(user_id)
+    cookies = b.login(user_id, login_required=login_required)
     if cookies:
         markup = ReplyKeyboardMarkup([FREE_SEAT_MARKUP, ACCOUNT_MARKUP, EXTRA_MARKUP])
     else:
@@ -89,7 +89,7 @@ def booking(update, context):
     text = update.message.text
     m = re.match('^/B(?P<day_delta>[0-9])_(?P<daytime>[0-9])_(?P<room>[0-9]+)_(?P<room_id>[A-Z0-9]+)_(?P<seat>[A-Z0-9_]+)$', text)
     if m:
-        cookies, markup = check_login(update)
+        cookies, markup = check_login(update, login_required=True)
         if cookies:
             user_id = update.message.from_user.id
             values = m.groupdict()
@@ -126,7 +126,7 @@ def booking(update, context):
             if m:
                 entry_id = m.group('entry_id')
                 user_id = update.message.from_user.id
-                cookies, markup = check_login(update)
+                cookies, markup = check_login(update, login_required=True)
                 success, error = b.cancel_reservation(user_id, entry_id, cookies)
                 update.message.reply_text('Reservierung erfolgreich gelöscht.' if success else
                                           'Löschen fehlgeschlagen.' + (f'\nFehler: {error}' if error else ''),
@@ -137,7 +137,7 @@ def booking(update, context):
 
 def reservations(update: Update, context: CallbackContext):
     update.message.reply_chat_action(ChatAction.TYPING)
-    cookies, markup = check_login(update)
+    cookies, markup = check_login(update, login_required=True)
     update.message.reply_chat_action(ChatAction.TYPING)
     if cookies:
         # bookings = get_own_bookings(b, cookies)

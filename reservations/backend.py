@@ -66,63 +66,66 @@ class Backend:
                 if (not tag.name or tag.name not in ['br', 'font'])
                 and tag.string.strip()])
 
-    def login(self, user_id, user=None, password=None):
+    def login(self, user_id, user=None, password=None, login_required=False):
         cookies_key = f'login-cookies:{user_id}'
         cookies_pickle = redis.get(cookies_key)
         cookies = pickle.loads(cookies_pickle) if cookies_pickle else None
-        session = requests.session()
-        if self.proxy:
-            session.proxies.update({
-                'http': self.proxy,
-                'https': self.proxy
-            })
-
-        # Check if session still valid
-        if cookies:
-            session.cookies = cookies
-        res = session.get(urljoin(self.base_url, 'admin.php'))
-        if 'Buchungsübersicht von' in res.text:
-            return session.cookies
-
-        # Renew cookies using creds
-        creds_key = f'login-creds:{user_id}'
-        if not user or not password:
-            creds_json = redis.get(creds_key)
-            creds = json.loads(creds_json) if creds_json else None
-            if creds:
-                user = creds['user']
-                password = creds['password']
-        if user and password:
-            login_url = urllib.parse.urljoin(base=self.base_url, url='admin.php')
-
-            # Create new session and get the cookies
+        if not login_required:
+            return cookies
+        else:
+            session = requests.session()
             if self.proxy:
                 session.proxies.update({
                     'http': self.proxy,
                     'https': self.proxy
                 })
-            session.get(login_url)
-            login_res = session.post(login_url,
-                                     data={
-                                         'NewUserName': user,
-                                         'NewUserPassword': password,
-                                         'returl': self.base_url,
-                                         'TargetURL': self.base_url,
-                                         'Action': 'SetName'
-                                     }, allow_redirects=False)
-            if login_res.status_code == 200:
-                print(f'Login failed: {user}')
-                print(login_res.text)
-            else:
-                print(f'Logged in {user}')
-                creds_json = {
-                    'user': user,
-                    'password': password
-                }
-                redis.set(creds_key, json.dumps(creds_json))
-                redis.set(cookies_key, pickle.dumps(session.cookies))
+
+            # Check if session still valid
+            if cookies:
+                session.cookies = cookies
+            res = session.get(urljoin(self.base_url, 'admin.php'))
+            if 'Buchungsübersicht von' in res.text:
                 return session.cookies
-        return None
+
+            # Renew cookies using creds
+            creds_key = f'login-creds:{user_id}'
+            if not user or not password:
+                creds_json = redis.get(creds_key)
+                creds = json.loads(creds_json) if creds_json else None
+                if creds:
+                    user = creds['user']
+                    password = creds['password']
+            if user and password:
+                login_url = urllib.parse.urljoin(base=self.base_url, url='admin.php')
+
+                # Create new session and get the cookies
+                if self.proxy:
+                    session.proxies.update({
+                        'http': self.proxy,
+                        'https': self.proxy
+                    })
+                session.get(login_url)
+                login_res = session.post(login_url,
+                                         data={
+                                             'NewUserName': user,
+                                             'NewUserPassword': password,
+                                             'returl': self.base_url,
+                                             'TargetURL': self.base_url,
+                                             'Action': 'SetName'
+                                         }, allow_redirects=False)
+                if login_res.status_code == 200:
+                    print(f'Login failed: {user}')
+                    print(login_res.text)
+                else:
+                    print(f'Logged in {user}')
+                    creds_json = {
+                        'user': user,
+                        'password': password
+                    }
+                    redis.set(creds_key, json.dumps(creds_json))
+                    redis.set(cookies_key, pickle.dumps(session.cookies))
+                    return session.cookies
+            return None
 
     def get_day_url(self, date, area):
         return urljoin(base=self.base_url,
@@ -136,63 +139,82 @@ class Backend:
                 'http': self.proxy,
                 'https': self.proxy
             })
-        if cookies:
-            session.cookies = cookies
-        r = session.get(url)
-        b = bs4.BeautifulSoup(r.text, 'html.parser')
-
-        table = b.find(id="day_main")
-
-        labels = [(list(t.strings)[1], t.attrs['data-room'])
-                  for t in list(table.thead.children)[1]
-                  if type(t) == bs4.element.Tag
-                  and 'data-room' in t.attrs]
-
-        rows = [r for r in table.tbody.children
-                if type(r) == bs4.element.Tag
-                and ('even_row' in r.attrs["class"] or 'odd_row' in r.attrs["class"])]
-        rows[0].td.find(class_='celldiv').text.strip()
 
         times = {}
-        for row in rows:
-            row_entries = []
-            col_index = 0
-            row_label = 'N/A'
-            for column in row.find_all('td'):
-                classes = column.attrs["class"]
-                if 'row_labels' in classes:
-                    row_label = column.find(class_='celldiv').text.strip()
-                    daytime = Daytime.MORNING if row_label == 'vormittags' else \
-                        Daytime.AFTERNOON if row_label == 'nachmittags' else \
-                            Daytime.EVENING
+        if cookies:
+            session.cookies = cookies
+        else:
+            redis_key = f'room_entries:{date.date()}:{area}'
+            cached_data = redis.get(redis_key)
+            times_data = json.loads(cached_data) if cached_data else None
+            if times_data:
+                for daytime, entries in times_data.items():
+                    for entry in entries:
+                        entry['state'] = State(entry['state'])
+                    daytime = Daytime(int(daytime))
+                    times[daytime] = entries
 
-                    continue
-                state = 'new' in classes and State.FREE or \
-                        'private' in classes and State.OCCUPIED or \
-                        'writable' in classes and State.MINE or \
-                        State.UNKNOWN
-                occupier = state in [State.FREE, State.MINE] and None or \
-                           'I' in classes and 'Interne Buchungen' or \
-                           'K' in classes and 'KIT Studenten' or \
-                           'D' in classes and 'DHBW Studenten' or \
-                           'H' in classes and 'HsKa Studenten' or \
-                           'G' in classes and 'Private Buchungen' or \
-                           'P' in classes and 'Personal' or \
-                           'special'
-                div = column.div
-                entry_id = div.attrs['data-id'] if 'data-id' in div.attrs else None
+        if not times:
+            r = session.get(url)
+            b = bs4.BeautifulSoup(r.text, 'html.parser')
 
-                label = labels[col_index]
-                row_entries.append({
-                    'area': area,
-                    'seat': label[0],
-                    'room_id': label[1],
-                    'state': state,
-                    'occupier': occupier,
-                    'entry_id': entry_id
-                })
-                col_index += 1
-            times[daytime] = row_entries
+            table = b.find(id="day_main")
+
+            labels = [(list(t.strings)[1], t.attrs['data-room'])
+                      for t in list(table.thead.children)[1]
+                      if type(t) == bs4.element.Tag
+                      and 'data-room' in t.attrs]
+
+            rows = [r for r in table.tbody.children
+                    if type(r) == bs4.element.Tag
+                    and ('even_row' in r.attrs["class"] or 'odd_row' in r.attrs["class"])]
+            rows[0].td.find(class_='celldiv').text.strip()
+
+            times = {}
+            for row in rows:
+                row_entries = []
+                col_index = 0
+                row_label = 'N/A'
+                for column in row.find_all('td'):
+                    classes = column.attrs["class"]
+                    if 'row_labels' in classes:
+                        row_label = column.find(class_='celldiv').text.strip()
+                        daytime = Daytime.MORNING if row_label == 'vormittags' else \
+                            Daytime.AFTERNOON if row_label == 'nachmittags' else \
+                                Daytime.EVENING
+
+                        continue
+                    state = 'new' in classes and State.FREE or \
+                            'private' in classes and State.OCCUPIED or \
+                            'writable' in classes and State.MINE or \
+                            State.UNKNOWN
+                    occupier = state in [State.FREE, State.MINE] and None or \
+                               'I' in classes and 'Interne Buchungen' or \
+                               'K' in classes and 'KIT Studenten' or \
+                               'D' in classes and 'DHBW Studenten' or \
+                               'H' in classes and 'HsKa Studenten' or \
+                               'G' in classes and 'Private Buchungen' or \
+                               'P' in classes and 'Personal' or \
+                               'special'
+                    div = column.div
+                    entry_id = div.attrs['data-id'] if 'data-id' in div.attrs else None
+
+                    label = labels[col_index]
+                    row_entries.append({
+                        'area': area,
+                        'seat': label[0],
+                        'room_id': label[1],
+                        'state': state,
+                        'occupier': occupier,
+                        'entry_id': entry_id
+                    })
+                    col_index += 1
+                times[daytime] = row_entries
+
+            expiry_time = 300
+            if date.date() == datetime.datetime.now().date():
+                expiry_time = 15
+            redis.set(redis_key, json.dumps(times), ex=expiry_time)
 
         return times
 
