@@ -274,10 +274,7 @@ class Backend:
             'area': room,
             'rooms[]': room_id,
             'type': 'K',
-            'confirmed': {
-                '0': '1',
-                '1': '1'
-            },
+            'confirmed': '1',
             'returl': self.get_day_url(date, room),
             'create_by': user,
             'rep_id': '0',
@@ -288,7 +285,8 @@ class Backend:
             urljoin(self.base_url,
                     f'edit_entry.php?area={room}&room={room_id}&period=0'
                     f'&year={date.year}&month={date.month}&day={date.day}'))
-        res = session.post(urljoin(self.base_url, 'edit_entry_handler.php'), data={**data, 'ajax': '1'})
+        res = session.post(urljoin(self.base_url, 'edit_entry_handler.php'), data={**data,
+                                                                                   'ajax': '1'})
         check_result = None
         try:
             check_result = res.json()

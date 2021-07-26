@@ -208,7 +208,7 @@ def extras(update: Update, context: CallbackContext):
 def format_seat_command(day_delta, daytime, booking, reserverd=False):
     prefix = 'C' if reserverd else 'B'
     seat = booking['seat']['seat'].replace(' ', '_')
-    return f"/{prefix}{day_delta}_{int(daytime)}_{booking['area']}_{seat}_{booking['seat']['room_id']}"
+    return f"/{prefix}{day_delta}_{int(daytime)}_{booking['area']}_{booking['seat']['room_id']}_{seat}"
 
 def get_login_key(update):
     user_id = update.message.from_user.id
