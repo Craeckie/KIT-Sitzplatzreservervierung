@@ -57,29 +57,32 @@ def start(update, context):
 def overview(update, context):
     update.message.reply_chat_action(ChatAction.TYPING)
     cookies, markup = check_login(update)
-    text = update.message.text
-    day_delta = 0 if text == 'Heute' else \
-                1 if text == 'Morgen' else \
-                2 if text == 'In 2 Tagen' else \
-                3
-    date = datetime.datetime.today() + datetime.timedelta(days=day_delta)
-    bookings = b.search_bookings(start_day=date,
-                                 state=State.FREE)
-    update.message.reply_chat_action(ChatAction.TYPING)
-    grouped = group_bookings(bookings, b.areas)
-    msg = f'<b>{date.strftime(DATE_FORMAT)}</b>\n'
-    for daytime, rooms in grouped.items():
-        msg += f'<pre>{daytime_to_name(daytime)}</pre>\n'
-        for room, seats in rooms.items():
-            msg += f'{room}: {len(seats)}'
-            if len(seats) <= 3:
-                msg += ' (' + ', '.join(
-                    [format_seat_command(day_delta, daytime, s) for s in seats]) + ')'
-            else:
-                area = seats[0]['area']
-                msg += f' /B{day_delta}_{int(daytime)}_{area}'
+    try:
+        text = update.message.text
+        day_delta = 0 if text == 'Heute' else \
+                    1 if text == 'Morgen' else \
+                    2 if text == 'In 2 Tagen' else \
+                    3
+        date = datetime.datetime.today() + datetime.timedelta(days=day_delta)
+        bookings = b.search_bookings(start_day=date,
+                                     state=State.FREE)
+        update.message.reply_chat_action(ChatAction.TYPING)
+        grouped = group_bookings(bookings, b.areas)
+        msg = f'<b>{date.strftime(DATE_FORMAT)}</b>\n'
+        for daytime, rooms in grouped.items():
+            msg += f'<pre>{daytime_to_name(daytime)}</pre>\n'
+            for room, seats in rooms.items():
+                msg += f'{room}: {len(seats)}'
+                if len(seats) <= 3:
+                    msg += ' (' + ', '.join(
+                        [format_seat_command(day_delta, daytime, s) for s in seats]) + ')'
+                else:
+                    area = seats[0]['area']
+                    msg += f' /B{day_delta}_{int(daytime)}_{area}'
+                msg += '\n'
             msg += '\n'
-        msg += '\n'
+    except Exception as e:
+        msg = 'Leider ist ein Fehler aufgetreten:\n' + str(e)
     context.bot.send_message(chat_id=update.effective_chat.id, text=msg, parse_mode='HTML',
                                  reply_markup=markup)
 
