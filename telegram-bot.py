@@ -44,6 +44,7 @@ def check_login(update, login_required=False):
         markup = ReplyKeyboardMarkup([FREE_SEAT_MARKUP, LOGIN_MARKUP])
     return cookies, markup
 
+
 def start(update, context):
     update.message.reply_chat_action(ChatAction.TYPING)
     cookies, markup = check_login(update)
@@ -60,8 +61,8 @@ def overview(update, context):
     try:
         text = update.message.text
         day_delta = 0 if text == 'Heute' else \
-                    1 if text == 'Morgen' else \
-                    2 if text == 'In 2 Tagen' else \
+            1 if text == 'Morgen' else \
+                2 if text == 'In 2 Tagen' else \
                     3
         date = datetime.datetime.today() + datetime.timedelta(days=day_delta)
         bookings = b.search_bookings(start_day=date,
@@ -84,13 +85,15 @@ def overview(update, context):
     except Exception as e:
         msg = 'Leider ist ein Fehler aufgetreten:\n' + str(e)
     context.bot.send_message(chat_id=update.effective_chat.id, text=msg, parse_mode='HTML',
-                                 reply_markup=markup)
+                             reply_markup=markup)
 
 
 def booking(update, context):
     update.message.reply_chat_action(ChatAction.TYPING)
     text = update.message.text
-    m = re.match('^/B(?P<day_delta>[0-9])_(?P<daytime>[0-9])_(?P<room>[0-9]+)_(?P<room_id>[A-Z0-9]+)_(?P<seat>[A-Z0-9_]+)$', text)
+    m = re.match(
+        '^/B(?P<day_delta>[0-9])_(?P<daytime>[0-9])_(?P<room>[0-9]+)_(?P<room_id>[A-Z0-9]+)_(?P<seat>[A-Z0-9_]+)$',
+        text)
     if m:
         cookies, markup = check_login(update, login_required=True)
         if cookies:
@@ -98,15 +101,15 @@ def booking(update, context):
             values = m.groupdict()
             values['seat'] = values['seat'].replace('_', ' ')
             success, error = b.book_seat(user_id=user_id,
-                        cookies=cookies,
-                        **values)
+                                         cookies=cookies,
+                                         **values)
             update.message.reply_text(
                 'Erfolgreich gebucht!' if success else
                 'Buchung ist leider fehlgeschlagen.' + (f'\nFehler: {error}' if error else ''),
-                              reply_markup=markup)
+                reply_markup=markup)
         else:
             update.message.reply_text('Zuerst musst du dich einloggen. Klicke dazu unten auf Login.',
-                              reply_markup=markup)
+                                      reply_markup=markup)
     else:
         m = re.match('^/B(?P<day_delta>[0-9])_(?P<daytime>[0-9])_(?P<room>[0-9]+)$', text)
         if m:
@@ -119,7 +122,8 @@ def booking(update, context):
             seat_markup = []
             row_count = math.ceil(len(bookings) / 3)
             for i in range(0, row_count):
-                row = [format_seat_command(values['day_delta'], values['daytime'], b) for b in bookings[i * 3: (i+1) * 3]]
+                row = [format_seat_command(values['day_delta'], values['daytime'], b) for b in
+                       bookings[i * 3: (i + 1) * 3]]
                 seat_markup.append(row)
             seat_markup.append(['Abbrechen'])
             context.bot.send_message(chat_id=update.effective_chat.id, text='Wähle einen Sitzplatz', parse_mode='HTML',
@@ -137,6 +141,7 @@ def booking(update, context):
             else:
                 context.bot.send_message(chat_id=update.effective_chat.id, text='Unbekannter Befehl', parse_mode='HTML',
                                          reply_markup=FREE_SEAT_MARKUP)
+
 
 def reservations(update: Update, context: CallbackContext):
     update.message.reply_chat_action(ChatAction.TYPING)
@@ -203,11 +208,11 @@ def extras(update: Update, context: CallbackContext):
                 else:
                     type_counts[occ_type] = 1
                 room_id = int(seat['area'])
-                room_name = 'KIT' if room_id in [19,20,21,34,35,37] else \
-                                               'DHBW' if room_id == 32 else \
-                                               'HsKa' if room_id in [28,29] else \
-                                               'KIT Nord' if room_id == 26 else \
-                                               'Unbekannt'
+                room_name = 'KIT' if room_id in [19, 20, 21, 34, 35, 37] else \
+                    'DHBW' if room_id == 32 else \
+                        'HsKa' if room_id in [28, 29] else \
+                            'KIT Nord' if room_id == 26 else \
+                                'Unbekannt'
                 if room_name in room_counts.keys():
                     room_counts[room_name] += 1
                 else:
@@ -218,20 +223,24 @@ def extras(update: Update, context: CallbackContext):
             total_count = sum(type_counts.values())
             msg += f'Insgesamt: {total_count}\n'
             msg += f'<u>Nach Uni/Hochschule:</u>\n'
-            msg += '\n'.join(f'{t}: {count} ({round(count/total_count*100,1)}%)' for t, count in type_counts.items())
+            msg += '\n'.join(
+                f'{t}: {count} ({round(count / total_count * 100, 1)}%)' for t, count in type_counts.items())
             msg += f'\n\n<u>Nach Raum:</u>\n'
             msg += '\n'.join(f'{room}: {count}' for room, count in room_counts.items())
         update.message.reply_text(msg, reply_markup=markup,
                                   parse_mode=ParseMode.HTML)
+
 
 def format_seat_command(day_delta, daytime, booking, reserverd=False):
     prefix = 'C' if reserverd else 'B'
     seat = booking['seat']['seat'].replace(' ', '_')
     return f"/{prefix}{day_delta}_{int(daytime)}_{booking['area']}_{booking['seat']['room_id']}_{seat}"
 
+
 def get_login_key(update):
     user_id = update.message.from_user.id
     return f'temp:login_user:{user_id}'
+
 
 def login(update: Update, context: CallbackContext):
     user_id = update.message.from_user.id
@@ -242,10 +251,12 @@ def login(update: Update, context: CallbackContext):
                               parse_mode=ParseMode.HTML)
     return USERNAME
 
+
 def login_username(update: Update, context: CallbackContext):
     redis.set(get_login_key(update), update.message.text)
     update.message.reply_text('Gib jetzt dein Passwort ein:', reply_markup=ReplyKeyboardRemove())
     return PASSWORD
+
 
 def login_password(update: Update, context: CallbackContext):
     update.message.reply_chat_action(ChatAction.TYPING)
@@ -259,9 +270,11 @@ def login_password(update: Update, context: CallbackContext):
                                   'Die Nachrichten mit deinen Login-Daten kannst du jetzt löschen.',
                                   reply_markup=ReplyKeyboardMarkup([FREE_SEAT_MARKUP, ACCOUNT_MARKUP, EXTRA_MARKUP]))
     else:
-        update.message.reply_text('Login fehlgeschlagen :(', reply_markup=ReplyKeyboardMarkup([FREE_SEAT_MARKUP,LOGIN_MARKUP]))
+        update.message.reply_text('Login fehlgeschlagen :(',
+                                  reply_markup=ReplyKeyboardMarkup([FREE_SEAT_MARKUP, LOGIN_MARKUP]))
 
     return ConversationHandler.END
+
 
 def login_cancel(update: Update, context: CallbackContext):
     user_id = update.message.from_user.id
