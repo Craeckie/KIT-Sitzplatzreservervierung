@@ -22,13 +22,7 @@ class Backend:
         self.areas = self.get_areas()
 
     def get_areas(self):
-        session = requests.session()
-        if self.proxy:
-            session.proxies.update({
-                'http': self.proxy,
-                'https': self.proxy
-            })
-        r = session.get(self.base_url)
+        r = self.get_request('/sitzplatzreservierung/')
         b = bs4.BeautifulSoup(r.text, 'html.parser')
 
         area_div = b.find('div', id='dwm_areas')
@@ -42,50 +36,34 @@ class Backend:
         return areas
 
     def get_times(self):
-        session = requests.session()
-        if self.proxy:
-            session.proxies.update({
-                'http': self.proxy,
-                'https': self.proxy
-            })
-        r = session.get(self.base_url)
+        r = self.get_request('/sitzplatzreservierung/')
         b = bs4.BeautifulSoup(r.text, 'html.parser')
 
         time_div = b.find('font', style='color: #000000')
         print([tag.string for tag in time_div.children])
         strings = time_div.find_all(lambda tag:
-                                 tag.string or
-                                 tag.name == 'a',
-                                 text=True)
+                                    tag.string or
+                                    tag.name == 'a',
+                                    text=True)
         print(strings)
         for tag in time_div.contents:
             print(f'{tag}')
         return '\n'.join([
             str(tag) if isinstance(tag, bs4.element.Tag) else tag.string.strip()
             for tag in time_div.contents
-                if (not tag.name or tag.name not in ['br', 'font'])
-                and tag.string.strip()])
+            if (not tag.name or tag.name not in ['br', 'font'])
+               and tag.string.strip()])
 
     def login(self, user_id, user=None, password=None, login_required=False):
         cookies_key = f'login-cookies:{user_id}'
         cookies_pickle = redis.get(cookies_key)
         cookies = pickle.loads(cookies_pickle) if cookies_pickle else None
-        if not login_required:
+        if cookies and not login_required:
             return cookies
         else:
-            session = requests.session()
-            if self.proxy:
-                session.proxies.update({
-                    'http': self.proxy,
-                    'https': self.proxy
-                })
-
-            # Check if session still valid
-            if cookies:
-                session.cookies = cookies
-            res = session.get(urljoin(self.base_url, 'admin.php'))
+            res = self.get_request('admin.php', cookies=cookies)
             if 'Buchungsübersicht von' in res.text:
-                return session.cookies
+                return res.cookies
 
             # Renew cookies using creds
             creds_key = f'login-creds:{user_id}'
@@ -96,23 +74,17 @@ class Backend:
                     user = creds['user']
                     password = creds['password']
             if user and password:
-                login_url = urllib.parse.urljoin(base=self.base_url, url='admin.php')
 
-                # Create new session and get the cookies
-                if self.proxy:
-                    session.proxies.update({
-                        'http': self.proxy,
-                        'https': self.proxy
-                    })
-                session.get(login_url)
-                login_res = session.post(login_url,
-                                         data={
-                                             'NewUserName': user,
-                                             'NewUserPassword': password,
-                                             'returl': self.base_url,
-                                             'TargetURL': self.base_url,
-                                             'Action': 'SetName'
-                                         }, allow_redirects=False)
+                # Get the cookies
+                res = self.get_request('admin.php')
+                login_res = self.post_request('admin.php',
+                                              data={
+                                                  'NewUserName': user,
+                                                  'NewUserPassword': password,
+                                                  'returl': self.base_url,
+                                                  'TargetURL': self.base_url,
+                                                  'Action': 'SetName'
+                                              }, allow_redirects=False)
                 if login_res.status_code == 200:
                     print(f'Login failed: {user}')
                     print(login_res.text)
@@ -123,27 +95,18 @@ class Backend:
                         'password': password
                     }
                     redis.set(creds_key, json.dumps(creds_json))
-                    redis.set(cookies_key, pickle.dumps(session.cookies))
-                    return session.cookies
+                    redis.set(cookies_key, pickle.dumps(login_res.cookies))
+                    return login_res.cookies
             return None
 
     def get_day_url(self, date, area):
-        return urljoin(base=self.base_url,
-                       url=f'day.php?year={date.year}&month={date.month}&day={date.day}&area={area}')
+        return f'day.php?year={date.year}&month={date.month}&day={date.day}&area={area}'
 
     def get_room_entries(self, date, area, cookies=None):
         url = self.get_day_url(date, area)
-        session = requests.session()
-        if self.proxy:
-            session.proxies.update({
-                'http': self.proxy,
-                'https': self.proxy
-            })
 
         times = {}
-        if cookies:
-            session.cookies = cookies
-        else:
+        if not cookies:
             redis_key = f'room_entries:{date.date()}:{area}'
             cached_data = redis.get(redis_key)
             times_data = json.loads(cached_data) if cached_data else None
@@ -155,7 +118,7 @@ class Backend:
                     times[daytime] = entries
 
         if not times:
-            r = session.get(url)
+            r = self.get_request(url, cookies=cookies)
             b = bs4.BeautifulSoup(r.text, 'html.parser')
 
             table = b.find(id="day_main")
@@ -263,14 +226,6 @@ class Backend:
         return bookings
 
     def book_seat(self, user_id, day_delta, daytime, room, seat, room_id, cookies):
-        session = requests.session()
-        if self.proxy:
-            session.proxies.update({
-                'http': self.proxy,
-                'https': self.proxy
-            })
-        session.cookies = cookies
-
         date = datetime.datetime.today() + datetime.timedelta(days=int(day_delta))
         creds_key = f'login-creds:{user_id}'
         creds_json = redis.get(creds_key)
@@ -278,9 +233,9 @@ class Backend:
         user = creds['user']
         daytime = int(daytime)
         seconds = 43200 if daytime == Daytime.MORNING else \
-                  43260 if daytime == Daytime.AFTERNOON else \
-                  43320 if daytime == Daytime.EVENING else \
-                  0
+            43260 if daytime == Daytime.AFTERNOON else \
+                43320 if daytime == Daytime.EVENING else \
+                    0
         if seconds == 0:
             raise AttributeError('Invalid daytime!')
         data = {
@@ -304,18 +259,17 @@ class Backend:
             'edit_type': 'series'
         }
         data = {k: str(v) for k, v in data.items()}
-        res = session.get(
-            urljoin(self.base_url,
+        res = self.get_request(
                     f'edit_entry.php?area={room}&room={room_id}&period=0'
-                    f'&year={date.year}&month={date.month}&day={date.day}'))
-        res = session.post(urljoin(self.base_url, 'edit_entry_handler.php'), data={**data,
-                                                                                   'ajax': '1'})
+                    f'&year={date.year}&month={date.month}&day={date.day}', cookies=cookies)
+        res = self.post_request('edit_entry_handler.php', data={**data,
+                                                                'ajax': '1'})
         check_result = None
         try:
             check_result = res.json()
         except:
             pass
-        res = session.post(urljoin(self.base_url, 'edit_entry_handler.php'), data=data, allow_redirects=False)
+        res = self.post_request('edit_entry_handler.php', data=data, allow_redirects=False)
         if res.status_code == 302:
             print(f"Erfolgreich gebucht: {data}")
             return True, None
@@ -344,75 +298,53 @@ class Backend:
             return False
 
     def cancel_reservation(self, user_id, entry_id, cookies):
-        session = requests.session()
-        if self.proxy:
-            session.proxies.update({
-                'http': self.proxy,
-                'https': self.proxy
-            })
-        session.cookies = cookies
-
         creds = get_user_creds(user_id)
         user = creds['user']
 
         now = datetime.datetime.now()
-        url = urljoin(self.base_url, 'del_entry.php?' +
-                                  f'id={entry_id}&series=0&returl=report.php?'
-                                  f'from_day={now.day}&from_month={now.month}&from_year={now.year}'
-                                  f'&to_day=1&to_month=12&to_year=2030'
-                                  f'&areamatch=&roommatch=&namematch=&descrmatch=&creatormatch={user}'
-                                  f'&match_private=2&match_confirmed=2'
-                                  f'&output=0&output_format=0&sortby=r&sumby=d&phase=2&datatable=1')
-        res = session.get(url, allow_redirects=False)
+        url = ('del_entry.php?' +
+               f'id={entry_id}&series=0&returl=report.php?'
+               f'from_day={now.day}&from_month={now.month}&from_year={now.year}'
+               f'&to_day=1&to_month=12&to_year=2030'
+               f'&areamatch=&roommatch=&namematch=&descrmatch=&creatormatch={user}'
+               f'&match_private=2&match_confirmed=2'
+               f'&output=0&output_format=0&sortby=r&sumby=d&phase=2&datatable=1')
+        res = self.get_request(url, allow_redirects=False)
         if res.status_code == 302:
             return True, None
         else:
             return False, None
 
     def get_reservations(self, user_id, cookies):
-        url = urljoin(self.base_url, 'report.php')
-        session = requests.session()
-        if self.proxy:
-            session.proxies.update({
-                'http': self.proxy,
-                'https': self.proxy
-            })
-        session.cookies = cookies
-
         creds = get_user_creds(user_id)
         user = creds['user']
 
         now = datetime.datetime.now()
         end = datetime.datetime(year=2030, month=12, day=1)
-        res = session.get(url,
-                    params={
-                        'from_day': now.day,
-                        'from_month': now.month,
-                        'from_year': now.year,
-                        'to_day': end.day,
-                        'to_month': end.month,
-                        'to_year': end.year,
-                        'areamatch': '',
-                        'roommatch': '',
-                        'namematch': '',
-                        'descrmatch': '',
-                        'creatormatch': user,
-                        'match_private': 2,
-                        'match_confirmed': 2,
-                        'output': 0,
-                        'output_format': 0,
-                        'sortby': 'd',
-                        'sumby': 'd',
-                        'datatable': 1,
-                        'phase': "2,2",
-                        'ajax': 1,
-                        '_': now.timestamp()
-                    },
-                          headers={
-                              'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; rv:78.0) Gecko/20100101 Firefox/78.0',
-                              'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
-                              'Accept-Language': 'de_DE,en;q=0.5'
-                          })
+        res = self.get_request('report.php', cookies=cookies,
+                               params={
+                                   'from_day': now.day,
+                                   'from_month': now.month,
+                                   'from_year': now.year,
+                                   'to_day': end.day,
+                                   'to_month': end.month,
+                                   'to_year': end.year,
+                                   'areamatch': '',
+                                   'roommatch': '',
+                                   'namematch': '',
+                                   'descrmatch': '',
+                                   'creatormatch': user,
+                                   'match_private': 2,
+                                   'match_confirmed': 2,
+                                   'output': 0,
+                                   'output_format': 0,
+                                   'sortby': 'd',
+                                   'sumby': 'd',
+                                   'datatable': 1,
+                                   'phase': "2,2",
+                                   'ajax': 1,
+                                   '_': now.timestamp()
+                               })
         if res.status_code != 200:
             return None
 
@@ -431,7 +363,6 @@ class Backend:
             entries.append(entry)
         return entries
 
-
         # b = bs4.BeautifulSoup(res.text, 'html.parser')
         # table = b.find(id="report_table")
 
@@ -449,6 +380,33 @@ class Backend:
         #     entries.append(entry)
         # return entries
 
+    def get_request(self, *args, **kwargs):
+        return self.request(*args, method='GET', **kwargs)
+
+    def post_request(self, *args, **kwargs):
+        return self.request(*args, method='POST', **kwargs)
+
+    def request(self, suburl, method='GET', cookies=None, params=None, **kwargs):
+        url = urljoin(self.base_url, suburl)
+        session = requests.session()
+        if self.proxy:
+            session.proxies.update({
+                'http': self.proxy,
+                'https': self.proxy
+            })
+        if cookies:
+            session.cookies = cookies
+
+        res = session.request(method=method, url=url, params=params, headers={
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; rv:78.0) Gecko/20100101 Firefox/78.0',
+            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
+            'Accept-Language': 'de_DE,en;q=0.5'
+        }, **kwargs)
+        # Overwrite old cookies with new cookies
+        session.cookies.update(res.cookies)
+        res.cookies = session.cookies
+        return res
+
 
 def daytime_to_name(daytime):
     if daytime == Daytime.MORNING:
@@ -459,6 +417,7 @@ def daytime_to_name(daytime):
         return 'Abends'
     else:
         raise AttributeError('Invalid daytime: {daytime}')
+
 
 def get_user_creds(user_id):
     creds_key = f'login-creds:{user_id}'
