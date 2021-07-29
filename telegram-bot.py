@@ -237,14 +237,14 @@ def login(update: Update, context: CallbackContext):
     user_id = update.message.from_user.id
     update.message.reply_text('Um dich einzuloggen musst du leider deine Kontodaten eingeben.\n'
                               'Es ist (soweit ich weiß) noch kein <a href="https://oauth.net/">Oauth</a> für die Sitzplatzreservierung implementiert.\n'
-                              'Gib die Kontonummer von deinem Bibiliotheks-Konto ein:',
+                              'Gib nun die Kontonummer von deinem Bibliotheks-Konto ein:',
                               reply_markup=ReplyKeyboardRemove(),
                               parse_mode=ParseMode.HTML)
     return USERNAME
 
 def login_username(update: Update, context: CallbackContext):
     redis.set(get_login_key(update), update.message.text)
-    update.message.reply_text('Gib nun dein Passwort ein:', reply_markup=ReplyKeyboardRemove())
+    update.message.reply_text('Gib jetzt dein Passwort ein:', reply_markup=ReplyKeyboardRemove())
     return PASSWORD
 
 def login_password(update: Update, context: CallbackContext):
@@ -253,7 +253,7 @@ def login_password(update: Update, context: CallbackContext):
     username = redis.get(get_login_key(update)).decode()
     redis.delete(get_login_key(update))
     password = update.message.text
-    cookies = b.login(user_id, username, password)
+    cookies = b.login(user_id, username, password, login_required=True)
     if cookies:
         update.message.reply_text('Erfolgreich eingeloggt!\n'
                                   'Die Nachrichten mit deinen Login-Daten kannst du jetzt löschen.',
