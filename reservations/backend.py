@@ -174,9 +174,16 @@ class Backend:
                     col_index += 1
                 times[daytime] = row_entries
 
+            # Adaptive expiry time for quick updates at important times
             expiry_time = 300
-            if date.date() == datetime.datetime.now().date():
+            now = datetime.datetime.now()
+            # Times when unused bookings are freed
+            if date.date() == now.date() and now.hour in [9, 14, 18] and 24 <= now.minute < 45:
                 expiry_time = 15
+            # Times around midnight and for current day
+            elif (date.date() == now.date() and now.hour < 19) or \
+                    now.hour in [0, 23]:
+                expiry_time = 30
             redis.set(redis_key, json.dumps(times), ex=expiry_time)
 
         return times
