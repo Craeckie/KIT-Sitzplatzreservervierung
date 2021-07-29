@@ -160,6 +160,7 @@ def reservations(update: Update, context: CallbackContext):
         #                    f"Platz {booking['seat']['seat']} " \
         #                    f"/C{booking['seat']['entry_id']}\n"
         bookings = b.get_reservations(update.message.from_user.id, cookies)
+        pin_message = False
         if bookings is None:
             msg = 'Es gab einen Fehler beim Öffnen der Reservierungen'
         elif bookings:
@@ -173,10 +174,12 @@ def reservations(update: Update, context: CallbackContext):
                        f"Platz {booking['seat']} " \
                        f"/C{booking['id']}\n"
                 last_date = cur_date
-
+            pin_message = True
         else:
             msg = 'Du hast aktuell keine Reservierungen.'
-        update.message.reply_text(msg, parse_mode=ParseMode.HTML)
+        sent_message = update.message.reply_text(msg, parse_mode=ParseMode.HTML)
+        context.bot.unpin_all_chat_messages(chat_id=sent_message.chat_id)
+        sent_message.pin(disable_notification=True)
     else:
         update.message.reply_text('Zuerst musst du dich einloggen. Klicke dazu unten auf Login.',
                                   reply_markup=markup)
@@ -300,6 +303,8 @@ dispatcher.add_handler(login_conv_handler)
 
 
 def unknown_command(update: Update, context: CallbackContext):
+    if update.message.from_user.is_bot:
+        return
     cookies, markup = check_login(update)
     update.message.reply_text('Unbekannter Befehl. Benutze die Buttons unten, um Funktionen aufzurufen.',
                               reply_markup=markup)
