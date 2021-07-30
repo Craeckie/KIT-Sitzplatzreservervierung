@@ -100,12 +100,12 @@ def booking(update: Update, context: CallbackContext):
             user_id = update.message.from_user.id
             values = m.groupdict()
             values['seat'] = values['seat'].replace('_', ' ')
-            success, error = b.book_seat(user_id=user_id,
+            success, msg = b.book_seat(user_id=user_id,
                                          cookies=cookies,
                                          **values)
             update.message.reply_text(
-                'Erfolgreich gebucht!' if success else
-                'Buchung ist leider fehlgeschlagen.' + (f'\nFehler: {error}' if error else ''),
+                (msg if msg else 'Erfolgreich gebucht!') if success else
+                'Buchung ist leider fehlgeschlagen.' + (f'\nFehler: {msg}' if msg else ''),
                 reply_markup=markup)
         else:
             update.message.reply_text('Zuerst musst du dich einloggen. Klicke dazu unten auf Login.',
@@ -168,10 +168,15 @@ def reservations(update: Update, context: CallbackContext):
             last_date = None
             for booking in bookings:
                 cur_date = booking['date']
+                if last_date is not None:  # not first entry
+                    msg += '\n'
                 if cur_date != last_date:
                     msg += f'<pre>{cur_date}</pre>\n'
+                if 'daytime' in booking:
+                    daytime = booking["daytime"]
+                    msg += f'<i>{daytime}</i>\n'
                 msg += f"{booking['room']}: " \
-                       f"Platz {booking['seat']} " \
+                       f"Platz {booking['seat']} . Löschen: " \
                        f"/C{booking['id']}\n"
                 last_date = cur_date
             pin_message = True

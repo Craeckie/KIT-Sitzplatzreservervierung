@@ -2,6 +2,7 @@ import datetime
 import json
 import os
 import pickle
+import re
 import urllib
 from enum import IntEnum
 from urllib.parse import urljoin
@@ -384,7 +385,13 @@ class Backend:
             entry['seat'] = j_entries[2]
 
             b = bs4.BeautifulSoup(j_entries[3], 'html.parser')
-            entry['date'] = b.get_text().title()
+            date = b.get_text().title()
+            m = re.match('(?P<daytime>[A-Za-z]+), (?P<weekday>[A-Za-z]+) '
+                     '(?P<day>[0-9]{2}) (?P<month>[A-Za-z]+) (?P<year>[0-9]{4})', date)
+            if m:
+                date = f"{m.group('weekday')}, {m.group('day')}. {m.group('month')}"
+                entry['daytime'] = m.group('daytime')
+            entry['date'] = date
             entries.append(entry)
         return entries
 
