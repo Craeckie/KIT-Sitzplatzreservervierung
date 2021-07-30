@@ -15,9 +15,9 @@ from . import redis
 
 
 class Daytime(IntEnum):
-    MORNING = 1
-    AFTERNOON = 2
-    EVENING = 3
+    MORNING = 0
+    AFTERNOON = 1
+    EVENING = 2
 
 
 class State(IntEnum):
@@ -256,9 +256,12 @@ class Backend:
                     0
         if seconds == 0:
             raise AttributeError('Invalid daytime!')
+        returl = self.get_absolute_url('day.php?area=20')
+        returl += '&returl=' + urllib.parse.quote(returl, safe='')  # yes...
+        daytime_str = daytime_to_name(int(daytime))
         data = {
             'name': user,
-            'description': daytime_to_name(int(daytime)).lower() + '+',
+            'description': daytime_str.lower() + '+',
             'start_day': date.day,
             'start_month': date.month,
             'start_year': date.year,
@@ -271,33 +274,35 @@ class Backend:
             'rooms[]': room_id,
             'type': 'K',
             'confirmed': '1',
-            'returl': get_day_url(date, room),
+            'returl': returl,
             'create_by': user,
             'rep_id': '0',
             'edit_type': 'series'
         }
         data = {k: str(v) for k, v in data.items()}
-        res = self.get_request(
-                    f'edit_entry.php?area={room}&room={room_id}&period=0'
-                    f'&year={date.year}&month={date.month}&day={date.day}', cookies=cookies)
+        referer = self.get_absolute_url(get_day_url(date, room))
+        # res = self.post_request(
+        #             f'edit_entry.php?area={room}&room={room_id}&period={daytime}'
+        #             f'&year={date.year}&month={date.month}&day={date.day}', cookies=cookies, data=data, referer=referer)
         res = self.post_request('edit_entry_handler.php', data={**data,
-                                                                'ajax': '1'})
+                                                                'ajax': '1'}, cookies=cookies, referer=referer)
         check_result = None
         try:
             check_result = res.json()
         except:
             pass
-        res = self.post_request('edit_entry_handler.php', data=data, allow_redirects=False)
+        res = self.post_request('edit_entry_handler.php', data=data, cookies=cookies, referer=referer, allow_redirects=False)
         if res.status_code == 302:
-            print(f"Erfolgreich gebucht: {data}")
-            return True, None
+            msg = f"Erfolgreich gebucht!\nZeit: {date.strftime('%a, %d.%m')}, {daytime_str}\nOrt:  {self.areas[room]}, Platz {seat}"
+            print(msg)
+            return True, msg
         else:
-            page = bs4.BeautifulSoup(res.text, 'html.parser')
-
-            content = page.find(id="contents")
             msg = check_result['rules_broken'][0] \
                 if check_result and 'rules_broken' in check_result and check_result['rules_broken'] else None
             if not msg:
+                page = bs4.BeautifulSoup(res.text, 'html.parser')
+
+                content = page.find(id="contents")
                 msg = content.get_text() if content else None
 
             return False, msg
@@ -315,9 +320,11 @@ class Backend:
         #     print(f"Buchen fehlgeschlagen: {data}")
         #     return False
 
-    def cancel_reservation(self, user_id, entry_id) -> (bool, str):
+    def cancel_reservation(self, user_id, entry_id, cookies: RequestsCookieJar) -> (bool, str):
         creds = get_user_creds(user_id)
         user = creds['user']
+        
+        referer = self.get_absolute_url(f'view_entry.php?id={entry_id}&area=20&day=24&month=12&year=2021')
 
         now = datetime.datetime.now()
         url = ('del_entry.php?' +
@@ -327,7 +334,7 @@ class Backend:
                f'&areamatch=&roommatch=&namematch=&descrmatch=&creatormatch={user}'
                f'&match_private=2&match_confirmed=2'
                f'&output=0&output_format=0&sortby=r&sumby=d&phase=2&datatable=1')
-        res = self.get_request(url, allow_redirects=False)
+        res = self.get_request(url, referer=referer, cookies=cookies, allow_redirects=False)
         if res.status_code == 302:
             return True, None
         else:
@@ -409,8 +416,9 @@ class Backend:
                 method: str = 'GET',
                 cookies: RequestsCookieJar = None,
                 params: dict = None,
+                referer: str = None,
                 **kwargs):
-        url = urljoin(self.base_url, suburl)
+        url = self.get_absolute_url(suburl)
         session = requests.session()
         if self.proxy:
             session.proxies.update({
@@ -419,16 +427,24 @@ class Backend:
             })
         if cookies:
             session.cookies = cookies
-
-        res = session.request(method=method, url=url, params=params, headers={
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; rv:78.0) Gecko/20100101 Firefox/78.0',
+        headers = {
             'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
-            'Accept-Language': 'de_DE,en;q=0.5'
-        }, **kwargs)
+            'Accept-Language': 'de_DE,en;q=0.5',
+            'Connection': 'keep-alive',
+            'Origin': self.base_url,
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; rv:78.0) Gecko/20100101 Firefox/78.0',
+        }
+        if referer:
+            headers['referer'] = referer
+
+        res = session.request(method=method, url=url, params=params, headers=headers, **kwargs)
         # Overwrite old cookies with new cookies
         session.cookies.update(res.cookies)
         res.cookies = session.cookies
         return res
+
+    def get_absolute_url(self, suburl):
+        return urljoin(self.base_url, suburl)
 
 
 def get_day_url(date: datetime.datetime, area) -> str:
