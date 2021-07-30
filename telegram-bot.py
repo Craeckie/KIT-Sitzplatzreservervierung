@@ -20,7 +20,13 @@ logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s
 locale.setlocale(locale.LC_ALL, 'de_DE.UTF-8')
 DATE_FORMAT = "%a, %d.%m."
 
-updater = Updater(token=os.environ.get('BOT_TOKEN'))
+request_kwargs = None
+proxy = os.environ.get('PROXY')
+if proxy:
+    request_kwargs = {
+        'proxy_url': proxy
+    }
+updater = Updater(token=os.environ.get('BOT_TOKEN'), request_kwargs=request_kwargs)
 dispatcher = updater.dispatcher
 
 base_url = 'https://raumbuchung.bibliothek.kit.edu/sitzplatzreservierung/'
