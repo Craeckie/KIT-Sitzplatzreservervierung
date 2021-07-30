@@ -35,7 +35,7 @@ EXTRA_MARKUP = ['Zeiten', 'Statistiken']
 USERNAME, PASSWORD = range(2)
 
 
-def check_login(update, login_required=False):
+def check_login(update: Update, login_required=False):
     user_id = update.message.from_user.id
     cookies = b.login(user_id, login_required=login_required)
     if cookies:
@@ -45,7 +45,7 @@ def check_login(update, login_required=False):
     return cookies, markup
 
 
-def start(update, context):
+def start(update: Update, context: CallbackContext):
     update.message.reply_chat_action(ChatAction.TYPING)
     cookies, markup = check_login(update)
     context.bot.send_message(chat_id=update.effective_chat.id,
@@ -55,7 +55,7 @@ def start(update, context):
                              reply_markup=markup)
 
 
-def overview(update, context):
+def overview(update: Update, context: CallbackContext):
     update.message.reply_chat_action(ChatAction.TYPING)
     cookies, markup = check_login(update)
     try:
@@ -88,7 +88,7 @@ def overview(update, context):
                              reply_markup=markup)
 
 
-def booking(update, context):
+def booking(update: Update, context: CallbackContext):
     update.message.reply_chat_action(ChatAction.TYPING)
     text = update.message.text
     m = re.match(
@@ -234,13 +234,13 @@ def extras(update: Update, context: CallbackContext):
                                   parse_mode=ParseMode.HTML)
 
 
-def format_seat_command(day_delta, daytime, booking, reserverd=False):
-    prefix = 'C' if reserverd else 'B'
+def format_seat_command(day_delta, daytime: int, booking:dict, reserved=False):
+    prefix = 'C' if reserved else 'B'
     seat = booking['seat']['seat'].replace(' ', '_')
     return f"/{prefix}{day_delta}_{int(daytime)}_{booking['area']}_{booking['seat']['room_id']}_{seat}"
 
 
-def get_login_key(update):
+def get_login_key(update: Update):
     user_id = update.message.from_user.id
     return f'temp:login_user:{user_id}'
 

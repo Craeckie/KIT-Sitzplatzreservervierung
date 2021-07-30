@@ -1,6 +1,5 @@
 import datetime
 import json
-import math
 import os
 import pickle
 import urllib
@@ -10,18 +9,32 @@ from urllib.parse import urljoin
 import bs4
 import requests
 from dateutil import rrule
+from requests.cookies import RequestsCookieJar
 
 from . import redis
 
 
+class Daytime(IntEnum):
+    MORNING = 1
+    AFTERNOON = 2
+    EVENING = 3
+
+
+class State(IntEnum):
+    FREE = 1
+    OCCUPIED = 2
+    MINE = 3
+    UNKNOWN = 4
+
+
 class Backend:
-    def __init__(self, base_url):
+    def __init__(self, base_url: str):
         self.base_url = base_url
         self.proxy = os.environ.get('PROXY')
 
         self.areas = self.get_areas()
 
-    def get_areas(self):
+    def get_areas(self) -> dict:
         r = self.get_request('/sitzplatzreservierung/')
         b = bs4.BeautifulSoup(r.text, 'html.parser')
 
@@ -35,7 +48,7 @@ class Backend:
             areas[number] = name
         return areas
 
-    def get_times(self):
+    def get_times(self) -> str:
         r = self.get_request('/sitzplatzreservierung/')
         b = bs4.BeautifulSoup(r.text, 'html.parser')
 
@@ -54,7 +67,7 @@ class Backend:
             if (not tag.name or tag.name not in ['br', 'font'])
                and tag.string.strip()])
 
-    def login(self, user_id, user=None, password=None, login_required=False):
+    def login(self, user_id: str, user=None, password=None, login_required=False) -> RequestsCookieJar:
         cookies_key = f'login-cookies:{user_id}'
         cookies_pickle = redis.get(cookies_key)
         cookies = pickle.loads(cookies_pickle) if cookies_pickle else None
@@ -99,15 +112,12 @@ class Backend:
                     return login_res.cookies
             return None
 
-    def get_day_url(self, date, area):
-        return f'day.php?year={date.year}&month={date.month}&day={date.day}&area={area}'
-
-    def get_room_entries(self, date, area, cookies=None):
-        url = self.get_day_url(date, area)
+    def get_room_entries(self, date: datetime.datetime, area, cookies: RequestsCookieJar = None) -> dict:
+        url = get_day_url(date, area)
 
         times = {}
+        redis_key = f'room_entries:{date.date()}:{area}'
         if not cookies:
-            redis_key = f'room_entries:{date.date()}:{area}'
             cached_data = redis.get(redis_key)
             times_data = json.loads(cached_data) if cached_data else None
             if times_data:
@@ -138,6 +148,7 @@ class Backend:
                 row_entries = []
                 col_index = 0
                 row_label = 'N/A'
+                daytime = Daytime.MORNING
                 for column in row.find_all('td'):
                     classes = column.attrs["class"]
                     if 'row_labels' in classes:
@@ -188,7 +199,7 @@ class Backend:
 
         return times
 
-    def get_day_entries(self, date, areas=None, cookies=None):
+    def get_day_entries(self, date: datetime.datetime, areas=None, cookies: RequestsCookieJar = None) -> dict:
         entries = {}
         for area in areas if areas else [a for a in self.areas.keys()]:
             room_entries = self.get_room_entries(date, area, cookies=cookies)
@@ -197,15 +208,15 @@ class Backend:
             })
         return entries
 
-    def search_bookings(self, start_day=datetime.datetime.today() + datetime.timedelta(days=1),
+    def search_bookings(self, start_day: datetime.datetime = datetime.datetime.today() + datetime.timedelta(days=1),
                         day_count=1,
                         state=None,
                         daytimes=None,
-                        areas=None,
-                        cookies=None):
+                        areas: list = None,
+                        cookies: RequestsCookieJar = None) -> list[dict]:
         bookings = []
 
-        def time_bookings(time_entries, daytime):
+        def time_bookings(time_entries: list, daytime):
             for seat in time_entries:
                 if not state or seat["state"] == state:
                     bookings.append({
@@ -232,7 +243,7 @@ class Backend:
 
         return bookings
 
-    def book_seat(self, user_id, day_delta, daytime, room, seat, room_id, cookies):
+    def book_seat(self, user_id, day_delta: int, daytime: int, room, seat, room_id, cookies: RequestsCookieJar) -> (bool, str):
         date = datetime.datetime.today() + datetime.timedelta(days=int(day_delta))
         creds_key = f'login-creds:{user_id}'
         creds_json = redis.get(creds_key)
@@ -260,7 +271,7 @@ class Backend:
             'rooms[]': room_id,
             'type': 'K',
             'confirmed': '1',
-            'returl': self.get_day_url(date, room),
+            'returl': get_day_url(date, room),
             'create_by': user,
             'rep_id': '0',
             'edit_type': 'series'
@@ -291,20 +302,20 @@ class Backend:
 
             return False, msg
 
-        try:
-            res = json.loads(res.text)
-            if 'valid_booking' in res and res['valid_booking']:
-                print(f"Erfolgreich gebucht: {data}")
-                return True
-            else:
-                print(f"Buchen fehlgeschlagen: {data}")
-                return False
+        # try:
+        #     res = json.loads(res.text)
+        #     if 'valid_booking' in res and res['valid_booking']:
+        #         print(f"Erfolgreich gebucht: {data}")
+        #         return True
+        #     else:
+        #         print(f"Buchen fehlgeschlagen: {data}")
+        #         return False
 
-        except:
-            print(f"Buchen fehlgeschlagen: {data}")
-            return False
+        # except:
+        #     print(f"Buchen fehlgeschlagen: {data}")
+        #     return False
 
-    def cancel_reservation(self, user_id, entry_id, cookies):
+    def cancel_reservation(self, user_id, entry_id) -> (bool, str):
         creds = get_user_creds(user_id)
         user = creds['user']
 
@@ -322,7 +333,7 @@ class Backend:
         else:
             return False, None
 
-    def get_reservations(self, user_id, cookies):
+    def get_reservations(self, user_id, cookies: RequestsCookieJar) -> list[dict]:
         creds = get_user_creds(user_id)
         user = creds['user']
 
@@ -393,7 +404,12 @@ class Backend:
     def post_request(self, *args, **kwargs):
         return self.request(*args, method='POST', **kwargs)
 
-    def request(self, suburl, method='GET', cookies=None, params=None, **kwargs):
+    def request(self,
+                suburl: str,
+                method: str = 'GET',
+                cookies: RequestsCookieJar = None,
+                params: dict = None,
+                **kwargs):
         url = urljoin(self.base_url, suburl)
         session = requests.session()
         if self.proxy:
@@ -415,7 +431,11 @@ class Backend:
         return res
 
 
-def daytime_to_name(daytime):
+def get_day_url(date: datetime.datetime, area) -> str:
+    return f'day.php?year={date.year}&month={date.month}&day={date.day}&area={area}'
+
+
+def daytime_to_name(daytime: Daytime) -> str:
     if daytime == Daytime.MORNING:
         return 'Vormittags'
     elif daytime == Daytime.AFTERNOON:
@@ -426,21 +446,8 @@ def daytime_to_name(daytime):
         raise AttributeError('Invalid daytime: {daytime}')
 
 
-def get_user_creds(user_id):
+def get_user_creds(user_id) -> dict:
     creds_key = f'login-creds:{user_id}'
     creds_json = redis.get(creds_key)
     creds = json.loads(creds_json) if creds_json else None
     return creds
-
-
-class State(IntEnum):
-    FREE = 1
-    OCCUPIED = 2
-    MINE = 3
-    UNKNOWN = 4
-
-
-class Daytime(IntEnum):
-    MORNING = 1
-    AFTERNOON = 2
-    EVENING = 3
