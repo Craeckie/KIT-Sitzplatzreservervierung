@@ -3,6 +3,7 @@ import locale
 import math
 import os
 import logging
+import pickle
 import re
 from itertools import groupby
 
@@ -37,8 +38,9 @@ FREE_SEAT_MARKUP = ['Heute', 'Morgen', 'In 2 Tagen', 'In 3 Tagen']
 ACCOUNT_MARKUP = ['Reservierungen']
 LOGIN_MARKUP = ['Login']
 EXTRA_MARKUP = ['Zeiten', 'Statistiken']
+CANCEL_MARKUP = ['Abbrechen']
 
-USERNAME, PASSWORD = range(2)
+USERNAME, PASSWORD, CAPTCHA = range(3)
 
 
 def check_login(update: Update, login_required=False):
@@ -251,9 +253,9 @@ def format_seat_command(day_delta, daytime: int, booking:dict, reserved=False):
     return f"/{prefix}{day_delta}_{int(daytime)}_{booking['area']}_{booking['seat']['room_id']}_{seat}"
 
 
-def get_login_key(update: Update):
+def get_user_key(update: Update, description: str):
     user_id = update.message.from_user.id
-    return f'temp:login_user:{user_id}'
+    return f'temp:{description}:{user_id}'
 
 
 def login(update: Update, context: CallbackContext):
@@ -261,24 +263,55 @@ def login(update: Update, context: CallbackContext):
     update.message.reply_text('Um dich einzuloggen musst du leider deine Kontodaten eingeben.\n'
                               'Es ist (soweit ich weiß) noch kein <a href="https://oauth.net/">Oauth</a> für die Sitzplatzreservierung implementiert.\n'
                               'Gib nun die Kontonummer von deinem Bibliotheks-Konto ein:',
-                              reply_markup=ReplyKeyboardRemove(),
+                              reply_markup=ReplyKeyboardMarkup([CANCEL_MARKUP]),
                               parse_mode=ParseMode.HTML)
     return USERNAME
 
 
 def login_username(update: Update, context: CallbackContext):
-    redis.set(get_login_key(update), update.message.text)
-    update.message.reply_text('Gib jetzt dein Passwort ein:', reply_markup=ReplyKeyboardRemove())
+    text = update.message.text
+    if text in CANCEL_MARKUP:
+        return login_cancel(update, context)
+    redis.set(get_user_key(update, 'login_username'), text)
+    update.message.reply_text('Gib jetzt dein Passwort ein:', reply_markup=ReplyKeyboardMarkup([CANCEL_MARKUP]))
     return PASSWORD
 
 
 def login_password(update: Update, context: CallbackContext):
+    text = update.message.text
+    if text in CANCEL_MARKUP:
+        return login_cancel(update, context)
+    update.message.reply_chat_action(ChatAction.TYPING)
+    redis.set(get_user_key(update, 'login_password'), text)
+    photo, cookies = b.get_captcha()
+    if photo:
+        redis.set(get_user_key(update, 'login_cookies'), pickle.dumps(cookies))
+        update.message.reply_photo(photo=photo, caption='Gib nun die Zeichen im Captcha ein', reply_markup=ReplyKeyboardMarkup([CANCEL_MARKUP]))
+        return CAPTCHA
+    else:
+        cookies, markup = check_login(update)
+        update.message.reply_text('Konnte Captcha nicht laden :(', reply_markup=markup)
+        return None
+
+
+def login_captcha(update: Update, context: CallbackContext):
+    text = update.message.text
+    if text in CANCEL_MARKUP:
+        return login_cancel(update, context)
     update.message.reply_chat_action(ChatAction.TYPING)
     user_id = update.message.from_user.id
-    username = redis.get(get_login_key(update)).decode()
-    redis.delete(get_login_key(update))
-    password = update.message.text
-    cookies = b.login(user_id, username, password, login_required=True)
+    username = redis.get(get_user_key(update, 'login_username')).decode()
+    password = redis.get(get_user_key(update, 'login_password')).decode()
+    cookies_pickle = redis.get(get_user_key(update, 'login_cookies'))
+    cookies = pickle.loads(cookies_pickle) if cookies_pickle else None
+    captcha = update.message.text
+    login_clean(update)
+    cookies = b.login(user_id=user_id,
+                      user=username,
+                      password=password,
+                      captcha=captcha,
+                      cookies=cookies,
+                      login_required=True)
     if cookies:
         update.message.reply_text('Erfolgreich eingeloggt!\n'
                                   'Die Nachrichten mit deinen Login-Daten kannst du jetzt löschen.',
@@ -290,9 +323,16 @@ def login_password(update: Update, context: CallbackContext):
     return ConversationHandler.END
 
 
+def login_clean(update: Update):
+    redis.delete(get_user_key(update, 'login_username'))
+    redis.delete(get_user_key(update, 'login_password'))
+    redis.delete(get_user_key(update, 'login_cookies'))
+
+
 def login_cancel(update: Update, context: CallbackContext):
-    user_id = update.message.from_user.id
-    redis.delete(f'temp:login_user:{user_id}')
+    login_clean(update)
+    update.message.reply_text('Login abgebrochen',
+                              reply_markup=ReplyKeyboardMarkup([FREE_SEAT_MARKUP, LOGIN_MARKUP]))
     return ConversationHandler.END
 
 
@@ -306,12 +346,19 @@ login_conv_handler = ConversationHandler(
     entry_points=[MessageHandler(Filters.text(LOGIN_MARKUP), login)],
     states={
         USERNAME: [MessageHandler(Filters.text & ~Filters.command, login_username)],
-        PASSWORD: [MessageHandler(Filters.text & ~Filters.command, login_password)]
+        PASSWORD: [MessageHandler(Filters.text & ~Filters.command, login_password)],
+        CAPTCHA: [MessageHandler(Filters.text & ~Filters.command, login_captcha)]
     },
     fallbacks=[MessageHandler(Filters.text('Abbrechen'), login_cancel)]
 )
 dispatcher.add_handler(login_conv_handler)
 
+
+def cancel_command(update: Update, context: CallbackContext):
+    cookies, markup = check_login(update)
+    login_clean(update)
+    update.message.reply_text('Aktion abgebrochen.',
+                              reply_markup=markup)
 
 def unknown_command(update: Update, context: CallbackContext):
     if update.message.from_user.is_bot:
@@ -321,6 +368,7 @@ def unknown_command(update: Update, context: CallbackContext):
                               reply_markup=markup)
 
 
+dispatcher.add_handler(MessageHandler(Filters.text(CANCEL_MARKUP), cancel_command))
 dispatcher.add_handler(MessageHandler(~Filters.text(FREE_SEAT_MARKUP)
                                       & ~Filters.text(ACCOUNT_MARKUP)
                                       & ~Filters.text(LOGIN_MARKUP)

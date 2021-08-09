@@ -5,6 +5,7 @@ import pickle
 import re
 import urllib
 from enum import IntEnum
+from io import BytesIO
 from urllib.parse import urljoin
 
 import bs4
@@ -68,16 +69,18 @@ class Backend:
             if (not tag.name or tag.name not in ['br', 'font'])
                and tag.string.strip()])
 
-    def login(self, user_id: str, user=None, password=None, login_required=False) -> RequestsCookieJar:
+    def login(self, user_id: str, user=None, password=None, captcha=None, cookies=None, login_required=False) -> RequestsCookieJar:
         cookies_key = f'login-cookies:{user_id}'
-        cookies_pickle = redis.get(cookies_key)
-        cookies = pickle.loads(cookies_pickle) if cookies_pickle else None
+        if not cookies:
+            cookies_pickle = redis.get(cookies_key)
+            cookies = pickle.loads(cookies_pickle) if cookies_pickle else None
         if cookies and not login_required:
             return cookies
         else:
-            res = self.get_request('admin.php', cookies=cookies)
-            if 'Buchungsübersicht von' in res.text:
-                return res.cookies
+            if not user or not password:
+                res = self.get_request('admin.php', cookies=cookies)
+                if 'Buchungsübersicht von' in res.text:
+                    return res.cookies
 
             # Renew cookies using creds
             creds_key = f'login-creds:{user_id}'
@@ -87,18 +90,21 @@ class Backend:
                 if creds:
                     user = creds['user']
                     password = creds['password']
-            if user and password:
+            if user and password and captcha:
 
                 # Get the cookies
-                res = self.get_request('admin.php')
                 login_res = self.post_request('admin.php',
                                               data={
                                                   'NewUserName': user,
                                                   'NewUserPassword': password,
                                                   'returl': self.base_url,
                                                   'TargetURL': self.base_url,
-                                                  'Action': 'SetName'
-                                              }, allow_redirects=False)
+                                                  'Action': 'SetName',
+                                                  'EULA': 'on',
+                                                  'CaptchaText': captcha
+                                              },
+                                              cookies=cookies,
+                                              allow_redirects=False)
                 if login_res.status_code == 200:
                     print(f'Login failed: {user}')
                     print(login_res.text)
@@ -112,6 +118,23 @@ class Backend:
                     redis.set(cookies_key, pickle.dumps(login_res.cookies))
                     return login_res.cookies
             return None
+
+    def get_captcha(self) -> (BytesIO, RequestsCookieJar):
+        res = self.get_request('admin.php')
+        b = bs4.BeautifulSoup(res.text, 'html.parser')
+        captcha_div = b.find('div', attrs={'id': 'Captcha'})
+        if not captcha_div:
+            return None, None
+        captcha_img = captcha_div.img
+        if not captcha_img or 'src' not in captcha_img.attrs:
+            return None, None
+        url = captcha_img.attrs['src']
+        url = self.get_absolute_url(url)
+        res = self.get_request(url, cookies=res.cookies)
+        # photo = BytesIO(res.content)
+        # photo.seek(0)
+        return res.content, res.cookies
+
 
     def get_room_entries(self, date: datetime.datetime, area, cookies: RequestsCookieJar = None) -> dict:
         url = get_day_url(date, area)
