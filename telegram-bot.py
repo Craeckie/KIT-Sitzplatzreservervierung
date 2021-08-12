@@ -12,7 +12,7 @@ from telegram.ext import CommandHandler, MessageHandler, Filters
 from telegram import ReplyKeyboardMarkup, ReplyKeyboardRemove, Update, ParseMode, ChatAction
 
 from reservations import redis
-from reservations.backend import Backend, Daytime, daytime_to_name, State
+from reservations.backend import Backend, Daytime, daytime_to_name, State, get_user_creds, remove_user_creds
 from reservations.query import group_bookings, get_own_bookings
 
 logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
@@ -39,6 +39,7 @@ ACCOUNT_MARKUP = ['Reservierungen']
 LOGIN_MARKUP = ['Login']
 EXTRA_MARKUP = ['Zeiten', 'Statistiken']
 CANCEL_MARKUP = ['Abbrechen']
+NEW_LOGIN_MARKUP = ['Neu einloggen']
 
 USERNAME, PASSWORD, CAPTCHA = range(3)
 
@@ -260,6 +261,21 @@ def get_user_key(update: Update, description: str):
 
 def login(update: Update, context: CallbackContext):
     user_id = update.message.from_user.id
+    creds = get_user_creds(user_id)
+    if creds:
+        photo, cookies = b.get_captcha()
+        if photo:
+            redis.set(get_user_key(update, 'login_cookies'), pickle.dumps(cookies))
+            msg = 'Gib nun die Zeichen im Captcha ein.\nWenn du dich neu einloggen willst, klicke unten auf den Knopf.'
+            markup = [NEW_LOGIN_MARKUP, CANCEL_MARKUP]
+            update.message.reply_photo(photo=photo,
+                                       caption=msg,
+                                       reply_markup=ReplyKeyboardMarkup(markup))
+            return CAPTCHA
+        else:
+            msg = 'Konnte Captcha nicht laden :('
+            cookies, markup = check_login(update)
+            update.message.reply_text(msg, reply_markup=markup)
     update.message.reply_text('Um dich einzuloggen musst du leider deine Kontodaten eingeben.\n'
                               'Es ist (soweit ich weiß) noch kein <a href="https://oauth.net/">Oauth</a> für die Sitzplatzreservierung implementiert.\n'
                               'Gib nun die Kontonummer von deinem Bibliotheks-Konto ein:',
@@ -278,6 +294,7 @@ def login_username(update: Update, context: CallbackContext):
 
 
 def login_password(update: Update, context: CallbackContext):
+    user_id = update.message.from_user.id
     text = update.message.text
     if text in CANCEL_MARKUP:
         return login_cancel(update, context)
@@ -286,7 +303,11 @@ def login_password(update: Update, context: CallbackContext):
     photo, cookies = b.get_captcha()
     if photo:
         redis.set(get_user_key(update, 'login_cookies'), pickle.dumps(cookies))
-        update.message.reply_photo(photo=photo, caption='Gib nun die Zeichen im Captcha ein', reply_markup=ReplyKeyboardMarkup([CANCEL_MARKUP]))
+        msg = 'Gib nun die Zeichen im Captcha ein'
+        markup = [CANCEL_MARKUP]
+        update.message.reply_photo(photo=photo,
+                                   caption=msg,
+                                   reply_markup=ReplyKeyboardMarkup(markup))
         return CAPTCHA
     else:
         cookies, markup = check_login(update)
@@ -295,13 +316,24 @@ def login_password(update: Update, context: CallbackContext):
 
 
 def login_captcha(update: Update, context: CallbackContext):
+    user_id = update.message.from_user.id
+    creds = get_user_creds(user_id)
+    update.message.reply_chat_action(ChatAction.TYPING)
+
     text = update.message.text
     if text in CANCEL_MARKUP:
         return login_cancel(update, context)
-    update.message.reply_chat_action(ChatAction.TYPING)
-    user_id = update.message.from_user.id
-    username = redis.get(get_user_key(update, 'login_username')).decode()
-    password = redis.get(get_user_key(update, 'login_password')).decode()
+    elif text in NEW_LOGIN_MARKUP and creds:
+        remove_user_creds(user_id)
+        update.message.reply_text('Gib nun die Kontonummer von deinem Bibliotheks-Konto ein:',
+                                  reply_markup=ReplyKeyboardMarkup([CANCEL_MARKUP]))
+        return USERNAME
+    elif creds:
+        username = creds['user']
+        password = creds['password']
+    else:
+        username = redis.get(get_user_key(update, 'login_username')).decode()
+        password = redis.get(get_user_key(update, 'login_password')).decode()
     cookies_pickle = redis.get(get_user_key(update, 'login_cookies'))
     cookies = pickle.loads(cookies_pickle) if cookies_pickle else None
     captcha = update.message.text
