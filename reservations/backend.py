@@ -83,10 +83,8 @@ class Backend:
                     return res.cookies
 
             # Renew cookies using creds
-            creds_key = f'login-creds:{user_id}'
             if not user or not password:
-                creds_json = redis.get(creds_key)
-                creds = json.loads(creds_json) if creds_json else None
+                creds = get_user_creds(user_id)
                 if creds:
                     user = creds['user']
                     password = creds['password']
@@ -114,7 +112,7 @@ class Backend:
                         'user': user,
                         'password': password
                     }
-                    redis.set(creds_key, json.dumps(creds_json))
+                    set_user_creds(user_id, creds_json)
                     redis.set(cookies_key, pickle.dumps(login_res.cookies))
                     return login_res.cookies
             return None
@@ -269,9 +267,7 @@ class Backend:
 
     def book_seat(self, user_id, day_delta: int, daytime: int, room, seat, room_id, cookies: RequestsCookieJar) -> (bool, str):
         date = datetime.datetime.today() + datetime.timedelta(days=int(day_delta))
-        creds_key = f'login-creds:{user_id}'
-        creds_json = redis.get(creds_key)
-        creds = json.loads(creds_json) if creds_json else None
+        creds = get_user_creds(user_id)
         user = creds['user']
         daytime = int(daytime)
         seconds = 43200 if daytime == Daytime.MORNING else \
@@ -497,3 +493,13 @@ def get_user_creds(user_id) -> dict:
     creds_json = redis.get(creds_key)
     creds = json.loads(creds_json) if creds_json else None
     return creds
+
+
+def set_user_creds(user_id, data):
+    creds_key = f'login-creds:{user_id}'
+    redis.set(creds_key, json.dumps(data))
+
+
+def remove_user_creds(user_id):
+    creds_key = f'login-creds:{user_id}'
+    redis.delete(creds_key)
