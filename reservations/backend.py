@@ -93,7 +93,7 @@ class Backend:
                 # Get the cookies
                 login_res = self.post_request('admin.php',
                                               data={
-                                                  'NewUserName': user,
+                                                  'NewUserName': user.strip(),
                                                   'NewUserPassword': password,
                                                   'returl': self.base_url,
                                                   'TargetURL': self.base_url,
