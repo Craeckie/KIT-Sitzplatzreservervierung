@@ -398,7 +398,7 @@ class Backend:
         for j_entries in data['aaData']:
             entry = {}
             links = j_entries[0]
-            b = bs4.BeautifulSoup(links, 'html.parser')
+            b = bs4.BeautifulSoup(links, 'lxml')
             entry['id'] = b.a.attrs['data-id']
             entry['room'] = j_entries[1]
             entry['seat'] = j_entries[2]
@@ -414,7 +414,8 @@ class Backend:
             entries.append(entry)
         return entries
 
-        # b = bs4.BeautifulSoup(res.text, 'html.parser')
+
+        # b = bs4.BeautifulSoup(res.text, 'lxml')
         # table = b.find(id="report_table")
 
         # rows = [r for r in table.tbody.children

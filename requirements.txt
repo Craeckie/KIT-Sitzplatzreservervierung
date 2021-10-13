@@ -5,3 +5,4 @@ urllib3~=1.26.4
 requests-cache==0.8.1
 python-telegram-bot[socks]~=13.5
 redis
+lxml

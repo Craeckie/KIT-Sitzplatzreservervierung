@@ -10,6 +10,8 @@ ENV PATH="$VIRTUAL_ENV/bin/:$PATH"
 
 
 RUN pip install --upgrade pip && \
-    pip install -r requirements.txt
+    apk add libxml2-dev libxslt-dev && apk add --virtual .build build-base && \
+    pip install -r requirements.txt && \
+    apk del .build
 
 CMD ["python3", "telegram-bot.py"]
