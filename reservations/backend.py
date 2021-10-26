@@ -107,14 +107,21 @@ class Backend:
                     print(f'Login failed: {user}')
                     print(login_res.text)
                 else:
-                    print(f'Logged in {user}')
-                    creds_json = {
-                        'user': user,
-                        'password': password
-                    }
-                    set_user_creds(user_id, creds_json)
-                    redis.set(cookies_key, pickle.dumps(login_res.cookies))
-                    return login_res.cookies
+                    # we need the library account number, even though login is possible using the Matrikelnummer
+                    res = self.get_request('admin.php', cookies=login_res.cookies)
+                    if 'Buchungsübersicht von' in res.text:
+                        user_match = re.search('Buchungsübersicht von<br> ([0-9]+)</a>', res.text)
+                        if user_match:
+                            old_user = user
+                            user = user_match.group(1)
+                            print(f'Logged in {old_user} as {user}')
+                            creds_json = {
+                                'user': user,
+                                'password': password
+                            }
+                            set_user_creds(user_id, creds_json)
+                            redis.set(cookies_key, pickle.dumps(login_res.cookies))
+                            return login_res.cookies
             return None
 
     def get_captcha(self) -> (BytesIO, RequestsCookieJar):
