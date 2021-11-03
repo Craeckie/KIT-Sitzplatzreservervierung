@@ -3,8 +3,9 @@ services:
   bot:
     build: https://github.com/Craeckie/KIT-Sitzplatzreservervierung.git
     environment:
-      TZ: "Europe/Berlin"
       BOT_TOKEN: "123456:ABC-DEF1234ghIkl-zyx57W2v1u123ew11" # your bot token
+      REDIS_HOST: "redis"
+      TZ: "Europe/Berlin"
       PROXY: "socks5h://tor:9050" # proxy container, optional
 
     networks:
@@ -17,3 +18,20 @@ services:
     cpu_shares: 128
     blkio_config:
       weight: 200
+
+  redis:
+    image: redis:alpine
+    volumes:
+      - ./redis-data:/data
+    networks:
+      - internal
+
+    mem_limit: 256M
+    cpu_shares: 256
+    blkio_config:
+      weight: 200
+
+networks:
+  internal:
+    internal: true
+  external:
