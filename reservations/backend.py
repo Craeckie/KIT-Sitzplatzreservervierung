@@ -33,7 +33,7 @@ class Backend:
 
     def get_areas(self) -> dict:
         r = self.get_request('/sitzplatzreservierung/')
-        b = bs4.BeautifulSoup(r.text, 'html.parser')
+        b = bs4.BeautifulSoup(r.text, 'lxml')
 
         area_div = b.find('div', id='dwm_areas')
         areas = {}
@@ -72,7 +72,7 @@ class Backend:
 
     def get_times(self) -> str:
         r = self.get_request('/sitzplatzreservierung/')
-        b = bs4.BeautifulSoup(r.text, 'html.parser')
+        b = bs4.BeautifulSoup(r.text, 'lxml')
 
         time_div = b.find('font', style='color: #000000')
         print([tag.string for tag in time_div.children])
@@ -139,7 +139,7 @@ class Backend:
 
     def get_captcha(self) -> (BytesIO, RequestsCookieJar):
         res = self.get_request('admin.php')
-        b = bs4.BeautifulSoup(res.text, 'html.parser')
+        b = bs4.BeautifulSoup(res.text, 'lxml')
         captcha_div = b.find('div', attrs={'id': 'Captcha'})
         if not captcha_div:
             return None, None
@@ -169,7 +169,7 @@ class Backend:
 
         if not times:
             r = self.get_request(url, cookies=cookies)
-            b = bs4.BeautifulSoup(r.text, 'html.parser')
+            b = bs4.BeautifulSoup(r.text, 'lxml')
 
             table = b.find(id="day_main")
 
@@ -340,7 +340,7 @@ class Backend:
             msg = check_result['rules_broken'][0] \
                 if check_result and 'rules_broken' in check_result and check_result['rules_broken'] else None
             if not msg:
-                page = bs4.BeautifulSoup(res.text, 'html.parser')
+                page = bs4.BeautifulSoup(res.text, 'lxml')
 
                 content = page.find(id="contents")
                 msg = content.get_text() if content else None
@@ -423,7 +423,7 @@ class Backend:
             entry['room'] = j_entries[1]
             entry['seat'] = j_entries[2]
 
-            b = bs4.BeautifulSoup(j_entries[3], 'html.parser')
+            b = bs4.BeautifulSoup(j_entries[3], 'lxml')
             date = b.get_text().title()
             m = re.match('(?P<daytime>[A-Za-z]+), (?P<weekday>[A-Za-z]+) '
                      '(?P<day>[0-9]{2}) (?P<month>[A-Za-z]+) (?P<year>[0-9]{4})', date)
