@@ -16,12 +16,6 @@ from requests.cookies import RequestsCookieJar
 from . import redis
 
 
-class Daytime(IntEnum):
-    MORNING = 0
-    AFTERNOON = 1
-    EVENING = 2
-
-
 class State(IntEnum):
     FREE = 1
     OCCUPIED = 2
@@ -34,11 +28,12 @@ class Backend:
         self.base_url = base_url
         self.proxy = os.environ.get('PROXY')
 
+        self.daytimes = self.get_daytimes()
         self.areas = self.get_areas()
 
     def get_areas(self) -> dict:
         r = self.get_request('/sitzplatzreservierung/')
-        b = bs4.BeautifulSoup(r.text, 'html.parser')
+        b = bs4.BeautifulSoup(r.text, 'lxml')
 
         area_div = b.find('div', id='dwm_areas')
         areas = {}
@@ -50,9 +45,34 @@ class Backend:
             areas[number] = name
         return areas
 
+    def get_daytimes(self) -> list:
+        r = self.get_request('/sitzplatzreservierung/')
+        b = bs4.BeautifulSoup(r.text, 'lxml')
+
+        table = b.find(id="day_main")
+
+        rows = [r for r in table.tbody.children
+                if type(r) == bs4.element.Tag
+                and ('even_row' in r.attrs["class"] or 'odd_row' in r.attrs["class"])]
+        daytimes = []
+        index = 0
+        for row in rows:
+            link = row.div.a
+            href = link.attrs['href']
+            seconds_match = re.search('timetohighlight=(.*)$', href)
+            seconds = seconds_match.group(1)
+            name = link.text
+            daytimes.append({
+                'name': name,
+                'seconds': seconds,
+                'index': index
+            })
+            index += 1
+        return daytimes
+
     def get_times(self) -> str:
         r = self.get_request('/sitzplatzreservierung/')
-        b = bs4.BeautifulSoup(r.text, 'html.parser')
+        b = bs4.BeautifulSoup(r.text, 'lxml')
 
         time_div = b.find('font', style='color: #000000')
         print([tag.string for tag in time_div.children])
@@ -126,7 +146,7 @@ class Backend:
 
     def get_captcha(self) -> (BytesIO, RequestsCookieJar):
         res = self.get_request('admin.php')
-        b = bs4.BeautifulSoup(res.text, 'html.parser')
+        b = bs4.BeautifulSoup(res.text, 'lxml')
         captcha_div = b.find('div', attrs={'id': 'Captcha'})
         if not captcha_div:
             return None, None
@@ -140,7 +160,6 @@ class Backend:
         # photo.seek(0)
         return res.content, res.cookies
 
-
     def get_room_entries(self, date: datetime.datetime, area, cookies: RequestsCookieJar = None) -> dict:
         url = get_day_url(date, area)
 
@@ -153,12 +172,11 @@ class Backend:
                 for daytime, entries in times_data.items():
                     for entry in entries:
                         entry['state'] = State(entry['state'])
-                    daytime = Daytime(int(daytime))
-                    times[daytime] = entries
+                    times[int(daytime)] = entries
 
         if not times:
             r = self.get_request(url, cookies=cookies)
-            b = bs4.BeautifulSoup(r.text, 'html.parser')
+            b = bs4.BeautifulSoup(r.text, 'lxml')
 
             table = b.find(id="day_main")
 
@@ -173,18 +191,20 @@ class Backend:
             rows[0].td.find(class_='celldiv').text.strip()
 
             times = {}
+            row_index = 0
             for row in rows:
                 row_entries = []
                 col_index = 0
                 row_label = 'N/A'
-                daytime = Daytime.MORNING
+                daytime = self.daytimes[0]
                 for column in row.find_all('td'):
                     classes = column.attrs["class"]
                     if 'row_labels' in classes:
                         row_label = column.find(class_='celldiv').text.strip()
-                        daytime = Daytime.MORNING if row_label == 'vormittags' else \
-                            Daytime.AFTERNOON if row_label == 'nachmittags' else \
-                                Daytime.EVENING
+                        # daytime = Daytime.MORNING if row_label == 'vormittags' else \
+                        #     Daytime.AFTERNOON if row_label == 'nachmittags' else \
+                        #         Daytime.EVENING
+                        #daytime = self.daytimes[row_label]
 
                         continue
                     state = 'new' in classes and State.FREE or \
@@ -212,7 +232,8 @@ class Backend:
                         'entry_id': entry_id
                     })
                     col_index += 1
-                times[daytime] = row_entries
+                times[row_index] = row_entries
+                row_index += 1
 
             # Adaptive expiry time for quick updates at important times
             expiry_time = 300
@@ -263,12 +284,13 @@ class Backend:
                     for time_name, time_entries in room_entries.items():
                         time_bookings(time_entries, time_name)
                 else:
-                    if isinstance(daytimes, Daytime):
-                        daytimes = [daytimes]
-                    elif all(isinstance(d, int) for d in daytimes):
-                        daytimes = [Daytime(d) for d in daytimes]
+                    # if isinstance(daytimes, type(self.daytimes)):
+                    #     daytimes = [daytimes]
+                    # elif all(isinstance(d, int) for d in daytimes):
+                    #     daytimes = [repr(self.daytimes(d)) for d in daytimes]
                     for daytime in daytimes:
-                        time_bookings(room_entries[daytime], daytime)
+                        if daytime < len(room_entries):
+                            time_bookings(room_entries[daytime], daytime)
 
         return bookings
 
@@ -277,15 +299,13 @@ class Backend:
         creds = get_user_creds(user_id)
         user = creds['user']
         daytime = int(daytime)
-        seconds = 43200 if daytime == Daytime.MORNING else \
-            43260 if daytime == Daytime.AFTERNOON else \
-                43320 if daytime == Daytime.EVENING else \
-                    0
-        if seconds == 0:
+        if 0 <= daytime < len(self.daytimes):
+            seconds = self.daytimes[daytime]['seconds']
+        else:
             raise AttributeError('Invalid daytime!')
         returl = self.get_absolute_url('day.php?area=20')
         returl += '&returl=' + urllib.parse.quote(returl, safe='')  # yes...
-        daytime_str = daytime_to_name(int(daytime))
+        daytime_str = self.daytimes[daytime]['name']
         data = {
             'name': user,
             'description': daytime_str.lower() + '+',
@@ -327,7 +347,7 @@ class Backend:
             msg = check_result['rules_broken'][0] \
                 if check_result and 'rules_broken' in check_result and check_result['rules_broken'] else None
             if not msg:
-                page = bs4.BeautifulSoup(res.text, 'html.parser')
+                page = bs4.BeautifulSoup(res.text, 'lxml')
 
                 content = page.find(id="contents")
                 msg = content.get_text() if content else None
@@ -410,7 +430,7 @@ class Backend:
             entry['room'] = j_entries[1]
             entry['seat'] = j_entries[2]
 
-            b = bs4.BeautifulSoup(j_entries[3], 'html.parser')
+            b = bs4.BeautifulSoup(j_entries[3], 'lxml')
             date = b.get_text().title()
             m = re.match('(?P<daytime>[A-Za-z]+), (?P<weekday>[A-Za-z]+) '
                      '(?P<day>[0-9]{2}) (?P<month>[A-Za-z]+) (?P<year>[0-9]{4})', date)
@@ -483,17 +503,6 @@ class Backend:
 
 def get_day_url(date: datetime.datetime, area) -> str:
     return f'day.php?year={date.year}&month={date.month}&day={date.day}&area={area}'
-
-
-def daytime_to_name(daytime: Daytime) -> str:
-    if daytime == Daytime.MORNING:
-        return 'Vormittags'
-    elif daytime == Daytime.AFTERNOON:
-        return 'Nachmittags'
-    elif daytime == Daytime.EVENING:
-        return 'Abends'
-    else:
-        raise AttributeError('Invalid daytime: {daytime}')
 
 
 def get_user_creds(user_id) -> dict:
