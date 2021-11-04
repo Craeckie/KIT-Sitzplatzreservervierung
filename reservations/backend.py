@@ -183,7 +183,7 @@ class Backend:
         url = get_day_url(date, area)
 
         times = {}
-        redis_key = f'room_entries:{date.date()}:{area}'
+        redis_key = f'room_entries:{date.strftime("%y-%m-%d")}:{area}'
         if not cookies:
             cached_data = redis.get(redis_key)
             times_data = json.loads(cached_data) if cached_data else None
@@ -256,15 +256,15 @@ class Backend:
                 row_index += 1
 
             # Adaptive expiry time for quick updates at important times
-            expiry_time = 600
+            expiry_time = 30 * 60
             now = datetime.datetime.now()
             # Times when unused bookings are freed
             if date.date() == now.date() and now.hour in [8, 13, 18] and 24 <= now.minute < 45:
-                expiry_time = 15
-            # Times around midnight and for current day
-            elif (date.date() == now.date() and now.hour < 19) or \
-                    now.hour in [0, 23]:
                 expiry_time = 30
+            # Times around midnight and for current day
+            elif (date.date() == now.date() and 5 <= now.hour <= 17) or \
+                    now.hour in [0, 23]:
+                expiry_time = 10 * 60
             redis.set(redis_key, json.dumps(times), ex=expiry_time)
 
         return times
