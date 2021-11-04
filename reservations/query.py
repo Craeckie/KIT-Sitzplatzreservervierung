@@ -1,7 +1,7 @@
 import datetime
 from itertools import groupby
 
-from reservations.backend import State, Daytime
+from reservations.backend import State
 
 
 def get_own_bookings(backend, cookies):
@@ -10,12 +10,14 @@ def get_own_bookings(backend, cookies):
     return bookings
 
 
-def group_bookings(bookings, areas, daytimes=None):
+def group_bookings(backend, bookings, areas, daytimes=None):
     results = {}
-    if isinstance(daytimes, Daytime):
-        daytimes = [daytimes]
-    elif daytimes is None:
-        daytimes = [Daytime.MORNING, Daytime.AFTERNOON, Daytime.EVENING]
+    # if isinstance(daytimes, Daytime):
+    #     daytimes = [daytimes]
+    # elif daytimes is None:
+    #     daytimes = [Daytime.MORNING, Daytime.AFTERNOON, Daytime.EVENING]
+    if daytimes is None:
+        daytimes = [d['index'] for d in backend.daytimes]
     for daytime in daytimes:
         cur_bookings = filter(lambda b: b['daytime'] == daytime, bookings)
         room_groups = groupby(cur_bookings, key=lambda b: b['room'])

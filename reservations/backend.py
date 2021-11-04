@@ -16,12 +16,6 @@ from requests.cookies import RequestsCookieJar
 from . import redis
 
 
-class Daytime(IntEnum):
-    MORNING = 0
-    AFTERNOON = 1
-    EVENING = 2
-
-
 class State(IntEnum):
     FREE = 1
     OCCUPIED = 2
@@ -34,40 +28,85 @@ class Backend:
         self.base_url = base_url
         self.proxy = os.environ.get('PROXY')
 
+        self.daytimes = self.get_daytimes()
         self.areas = self.get_areas()
 
     def get_areas(self) -> dict:
-        r = self.get_request('/sitzplatzreservierung/')
-        b = bs4.BeautifulSoup(r.text, 'html.parser')
+        redis_key = f'areas'
+        areas_json = redis.get(redis_key)
+        areas = json.loads(areas_json) if areas_json else None
+        if not areas:
+            print('Cache: reloading areas')
+            r = self.get_request('/sitzplatzreservierung/')
+            b = bs4.BeautifulSoup(r.text, 'lxml')
 
-        area_div = b.find('div', id='dwm_areas')
-        areas = {}
-        for li in area_div.find_all('li'):
-            name = li.text.strip()
-            url = urllib.parse.urlparse(li.a.get('href'))
-            params = urllib.parse.parse_qs(url.query)
-            number = ''.join(params['area'])
-            areas[number] = name
+            area_div = b.find('div', id='dwm_areas')
+            areas = {}
+            for li in area_div.find_all('li'):
+                name = li.text.strip()
+                url = urllib.parse.urlparse(li.a.get('href'))
+                params = urllib.parse.parse_qs(url.query)
+                number = ''.join(params['area'])
+                areas[number] = name
+            redis.set(redis_key, json.dumps(areas), ex=24 * 3600)
         return areas
 
-    def get_times(self) -> str:
-        r = self.get_request('/sitzplatzreservierung/')
-        b = bs4.BeautifulSoup(r.text, 'html.parser')
+    def get_daytimes(self) -> list:
+        redis_key = f'daytimes'
+        daytimes_json = redis.get(redis_key)
+        daytimes = json.loads(daytimes_json) if daytimes_json else None
+        if not daytimes:
+            print('Cache: reloading daytimes')
+            r = self.get_request('/sitzplatzreservierung/')
+            b = bs4.BeautifulSoup(r.text, 'lxml')
 
-        time_div = b.find('font', style='color: #000000')
-        print([tag.string for tag in time_div.children])
-        strings = time_div.find_all(lambda tag:
-                                    tag.string or
-                                    tag.name == 'a',
-                                    text=True)
-        print(strings)
-        for tag in time_div.contents:
-            print(f'{tag}')
-        return '\n'.join([
-            str(tag) if isinstance(tag, bs4.element.Tag) else tag.string.strip()
-            for tag in time_div.contents
-            if (not tag.name or tag.name not in ['br', 'font'])
-               and tag.string.strip()])
+            table = b.find(id="day_main")
+
+            rows = [r for r in table.tbody.children
+                    if type(r) == bs4.element.Tag
+                    and ('even_row' in r.attrs["class"] or 'odd_row' in r.attrs["class"])]
+            daytimes = []
+            index = 0
+            for row in rows:
+                link = row.div.a
+                href = link.attrs['href']
+                seconds_match = re.search('timetohighlight=(.*)$', href)
+                seconds = seconds_match.group(1)
+                name = link.text
+                daytimes.append({
+                    'name': name,
+                    'seconds': seconds,
+                    'index': index
+                })
+                index += 1
+            redis.set(redis_key, json.dumps(daytimes), ex=24 * 3600)
+        return daytimes
+
+    def get_times(self) -> str:
+        redis_key = f'times'
+        times_data = redis.get(redis_key)
+        times = times_data.decode('UTF-8') if times_data else None
+        if not times:
+            print('Cache: reloading times')
+            r = self.get_request('/sitzplatzreservierung/')
+            b = bs4.BeautifulSoup(r.text, 'lxml')
+
+            time_div = b.find('font', style='color: #000000')
+            print([tag.string for tag in time_div.children])
+            strings = time_div.find_all(lambda tag:
+                                        tag.string or
+                                        tag.name == 'a',
+                                        text=True)
+            print(strings)
+            for tag in time_div.contents:
+                print(f'{tag}')
+            times = '\n'.join([
+                    str(tag) if isinstance(tag, bs4.element.Tag) else tag.string.strip()
+                    for tag in time_div.contents
+                    if (not tag.name or tag.name not in ['br', 'font'])
+                       and tag.string.strip()])
+            redis.set(redis_key, times.encode('UTF-8'), ex=24 * 3600)
+        return times
 
     def login(self, user_id: str, user=None, password=None, captcha=None, cookies=None, login_required=False) -> RequestsCookieJar:
         cookies_key = f'login-cookies:{user_id}'
@@ -107,19 +146,26 @@ class Backend:
                     print(f'Login failed: {user}')
                     print(login_res.text)
                 else:
-                    print(f'Logged in {user}')
-                    creds_json = {
-                        'user': user,
-                        'password': password
-                    }
-                    set_user_creds(user_id, creds_json)
-                    redis.set(cookies_key, pickle.dumps(login_res.cookies))
-                    return login_res.cookies
+                    # we need the library account number, even though login is possible using the Matrikelnummer
+                    res = self.get_request('admin.php', cookies=login_res.cookies)
+                    if 'Buchungsübersicht von' in res.text:
+                        user_match = re.search('Buchungsübersicht von<br> ([0-9]+)</a>', res.text)
+                        if user_match:
+                            old_user = user
+                            user = user_match.group(1)
+                            print(f'Logged in {old_user} as {user}')
+                            creds_json = {
+                                'user': user,
+                                'password': password
+                            }
+                            set_user_creds(user_id, creds_json)
+                            redis.set(cookies_key, pickle.dumps(login_res.cookies))
+                            return login_res.cookies
             return None
 
     def get_captcha(self) -> (BytesIO, RequestsCookieJar):
         res = self.get_request('admin.php')
-        b = bs4.BeautifulSoup(res.text, 'html.parser')
+        b = bs4.BeautifulSoup(res.text, 'lxml')
         captcha_div = b.find('div', attrs={'id': 'Captcha'})
         if not captcha_div:
             return None, None
@@ -133,12 +179,11 @@ class Backend:
         # photo.seek(0)
         return res.content, res.cookies
 
-
     def get_room_entries(self, date: datetime.datetime, area, cookies: RequestsCookieJar = None) -> dict:
         url = get_day_url(date, area)
 
         times = {}
-        redis_key = f'room_entries:{date.date()}:{area}'
+        redis_key = f'room_entries:{date.strftime("%y-%m-%d")}:{area}'
         if not cookies:
             cached_data = redis.get(redis_key)
             times_data = json.loads(cached_data) if cached_data else None
@@ -146,12 +191,12 @@ class Backend:
                 for daytime, entries in times_data.items():
                     for entry in entries:
                         entry['state'] = State(entry['state'])
-                    daytime = Daytime(int(daytime))
-                    times[daytime] = entries
+                    times[int(daytime)] = entries
 
         if not times:
+            print(f'Cache: reloading room entries on {date.date()} for {area}')
             r = self.get_request(url, cookies=cookies)
-            b = bs4.BeautifulSoup(r.text, 'html.parser')
+            b = bs4.BeautifulSoup(r.text, 'lxml')
 
             table = b.find(id="day_main")
 
@@ -166,18 +211,20 @@ class Backend:
             rows[0].td.find(class_='celldiv').text.strip()
 
             times = {}
+            row_index = 0
             for row in rows:
                 row_entries = []
                 col_index = 0
                 row_label = 'N/A'
-                daytime = Daytime.MORNING
+                daytime = self.daytimes[0]
                 for column in row.find_all('td'):
                     classes = column.attrs["class"]
                     if 'row_labels' in classes:
                         row_label = column.find(class_='celldiv').text.strip()
-                        daytime = Daytime.MORNING if row_label == 'vormittags' else \
-                            Daytime.AFTERNOON if row_label == 'nachmittags' else \
-                                Daytime.EVENING
+                        # daytime = Daytime.MORNING if row_label == 'vormittags' else \
+                        #     Daytime.AFTERNOON if row_label == 'nachmittags' else \
+                        #         Daytime.EVENING
+                        #daytime = self.daytimes[row_label]
 
                         continue
                     state = 'new' in classes and State.FREE or \
@@ -205,18 +252,21 @@ class Backend:
                         'entry_id': entry_id
                     })
                     col_index += 1
-                times[daytime] = row_entries
+                times[row_index] = row_entries
+                row_index += 1
 
             # Adaptive expiry time for quick updates at important times
-            expiry_time = 300
+            expiry_time = 10 * 60
             now = datetime.datetime.now()
             # Times when unused bookings are freed
-            if date.date() == now.date() and now.hour in [9, 14, 18] and 24 <= now.minute < 45:
-                expiry_time = 15
-            # Times around midnight and for current day
-            elif (date.date() == now.date() and now.hour < 19) or \
-                    now.hour in [0, 23]:
+            if date.date() == now.date() and now.hour in [8, 13, 18] and 24 <= now.minute < 45:
                 expiry_time = 30
+            # Times around midnight and for current day
+            elif (date.date() == now.date() and 5 <= now.hour <= 17) or \
+                    now.hour in [0, 23]:
+                expiry_time = 5 * 60
+            elif date.date() - now.date() >= datetime.timedelta(days=2):
+                expiry_time = 15 * 60
             redis.set(redis_key, json.dumps(times), ex=expiry_time)
 
         return times
@@ -256,12 +306,13 @@ class Backend:
                     for time_name, time_entries in room_entries.items():
                         time_bookings(time_entries, time_name)
                 else:
-                    if isinstance(daytimes, Daytime):
-                        daytimes = [daytimes]
-                    elif all(isinstance(d, int) for d in daytimes):
-                        daytimes = [Daytime(d) for d in daytimes]
+                    # if isinstance(daytimes, type(self.daytimes)):
+                    #     daytimes = [daytimes]
+                    # elif all(isinstance(d, int) for d in daytimes):
+                    #     daytimes = [repr(self.daytimes(d)) for d in daytimes]
                     for daytime in daytimes:
-                        time_bookings(room_entries[daytime], daytime)
+                        if daytime < len(room_entries):
+                            time_bookings(room_entries[daytime], daytime)
 
         return bookings
 
@@ -270,15 +321,13 @@ class Backend:
         creds = get_user_creds(user_id)
         user = creds['user']
         daytime = int(daytime)
-        seconds = 43200 if daytime == Daytime.MORNING else \
-            43260 if daytime == Daytime.AFTERNOON else \
-                43320 if daytime == Daytime.EVENING else \
-                    0
-        if seconds == 0:
+        if 0 <= daytime < len(self.daytimes):
+            seconds = self.daytimes[daytime]['seconds']
+        else:
             raise AttributeError('Invalid daytime!')
         returl = self.get_absolute_url('day.php?area=20')
         returl += '&returl=' + urllib.parse.quote(returl, safe='')  # yes...
-        daytime_str = daytime_to_name(int(daytime))
+        daytime_str = self.daytimes[daytime]['name']
         data = {
             'name': user,
             'description': daytime_str.lower() + '+',
@@ -320,7 +369,7 @@ class Backend:
             msg = check_result['rules_broken'][0] \
                 if check_result and 'rules_broken' in check_result and check_result['rules_broken'] else None
             if not msg:
-                page = bs4.BeautifulSoup(res.text, 'html.parser')
+                page = bs4.BeautifulSoup(res.text, 'lxml')
 
                 content = page.find(id="contents")
                 msg = content.get_text() if content else None
@@ -403,7 +452,7 @@ class Backend:
             entry['room'] = j_entries[1]
             entry['seat'] = j_entries[2]
 
-            b = bs4.BeautifulSoup(j_entries[3], 'html.parser')
+            b = bs4.BeautifulSoup(j_entries[3], 'lxml')
             date = b.get_text().title()
             m = re.match('(?P<daytime>[A-Za-z]+), (?P<weekday>[A-Za-z]+) '
                      '(?P<day>[0-9]{2}) (?P<month>[A-Za-z]+) (?P<year>[0-9]{4})', date)
@@ -413,7 +462,6 @@ class Backend:
             entry['date'] = date
             entries.append(entry)
         return entries
-
 
         # b = bs4.BeautifulSoup(res.text, 'lxml')
         # table = b.find(id="report_table")
@@ -476,17 +524,6 @@ class Backend:
 
 def get_day_url(date: datetime.datetime, area) -> str:
     return f'day.php?year={date.year}&month={date.month}&day={date.day}&area={area}'
-
-
-def daytime_to_name(daytime: Daytime) -> str:
-    if daytime == Daytime.MORNING:
-        return 'Vormittags'
-    elif daytime == Daytime.AFTERNOON:
-        return 'Nachmittags'
-    elif daytime == Daytime.EVENING:
-        return 'Abends'
-    else:
-        raise AttributeError('Invalid daytime: {daytime}')
 
 
 def get_user_creds(user_id) -> dict:

@@ -12,7 +12,7 @@ from telegram.ext import CommandHandler, MessageHandler, Filters
 from telegram import ReplyKeyboardMarkup, ReplyKeyboardRemove, Update, ParseMode, ChatAction
 
 from reservations import redis
-from reservations.backend import Backend, Daytime, daytime_to_name, State, get_user_creds, remove_user_creds
+from reservations.backend import Backend, State, get_user_creds, remove_user_creds
 from reservations.query import group_bookings, get_own_bookings
 
 logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
@@ -40,8 +40,10 @@ LOGIN_MARKUP = ['Login']
 EXTRA_MARKUP = ['Zeiten', 'Statistiken']
 CANCEL_MARKUP = ['Abbrechen']
 NEW_LOGIN_MARKUP = ['Neu einloggen']
+DAYTIME_MARKUP = [daytime['name'].title() for daytime in b.daytimes]
 
 USERNAME, PASSWORD, CAPTCHA = range(3)
+TIME, DAY = range(2)
 
 
 def check_login(update: Update, login_required=False):
@@ -64,37 +66,57 @@ def start(update: Update, context: CallbackContext):
                              reply_markup=markup)
 
 
-def overview(update: Update, context: CallbackContext):
+def day_selected(update: Update, context: CallbackContext):
     update.message.reply_chat_action(ChatAction.TYPING)
-    cookies, markup = check_login(update)
-    try:
-        text = update.message.text
-        day_delta = 0 if text == 'Heute' else \
-            1 if text == 'Morgen' else \
+    text = update.message.text
+    day_delta = 0 if text == 'Heute' else \
+                1 if text == 'Morgen' else \
                 2 if text == 'In 2 Tagen' else \
-                    3
+                3
+
+    redis.set(get_user_key(update, 'day_selected'), day_delta)
+    context.bot.send_message(chat_id=update.effective_chat.id, text='Welche Zeit?', parse_mode='HTML',
+                             reply_markup=ReplyKeyboardMarkup([[d] for d in DAYTIME_MARKUP]))
+    return TIME
+
+
+def time_selected(update: Update, context: CallbackContext):
+    cookies, markup = check_login(update)
+    day_delta = int(redis.get(get_user_key(update, 'day_selected')))
+    text = update.message.text
+    daytime = -1
+    for cur_daytime in b.daytimes:
+        if cur_daytime['name'] == text.lower():
+            daytime = cur_daytime['index']
+            break
+
+    try:
         date = datetime.datetime.today() + datetime.timedelta(days=day_delta)
         bookings = b.search_bookings(start_day=date,
+                                     daytimes=[daytime],
                                      state=State.FREE)
         update.message.reply_chat_action(ChatAction.TYPING)
-        grouped = group_bookings(bookings, b.areas)
+        grouped = group_bookings(b, bookings, b.areas)
         msg = f'<b>{date.strftime(DATE_FORMAT)}</b>\n'
         for daytime, rooms in grouped.items():
-            msg += f'<pre>{daytime_to_name(daytime)}</pre>\n'
-            for room, seats in rooms.items():
-                msg += f'{room}: {len(seats)}'
-                if len(seats) <= 3:
-                    msg += ' (' + ', '.join(
-                        [format_seat_command(day_delta, daytime, s) for s in seats]) + ')'
-                else:
-                    area = seats[0]['area']
-                    msg += f' /B{day_delta}_{int(daytime)}_{area}'
+            if rooms:
+                daytime_str = b.daytimes[daytime]["name"].title()
+                msg += f'<pre>{daytime_str}</pre>\n'
+                for room, seats in rooms.items():
+                    msg += f'{room}: {len(seats)}'
+                    if len(seats) <= 3:
+                        msg += ' (' + ', '.join(
+                            [format_seat_command(day_delta, daytime, s) for s in seats]) + ')'
+                    else:
+                        area = seats[0]['area']
+                        msg += f' /B{day_delta}_{int(daytime)}_{area}'
+                    msg += '\n'
                 msg += '\n'
-            msg += '\n'
     except Exception as e:
         msg = 'Leider ist ein Fehler aufgetreten:\n' + str(e)
     context.bot.send_message(chat_id=update.effective_chat.id, text=msg, parse_mode='HTML',
                              reply_markup=markup)
+    return ConversationHandler.END
 
 
 def booking(update: Update, context: CallbackContext):
@@ -278,7 +300,7 @@ def login(update: Update, context: CallbackContext):
             update.message.reply_text(msg, reply_markup=markup)
     update.message.reply_text('Um dich einzuloggen musst du leider deine Kontodaten eingeben.\n'
                               'Es ist (soweit ich weiß) noch kein <a href="https://oauth.net/">Oauth</a> für die Sitzplatzreservierung implementiert.\n'
-                              'Gib nun die Kontonummer von deinem Bibliotheks-Konto ein:',
+                              'Gib nun die <b>Kontonummer</b> von deinem Bibliotheks-Konto ein:',
                               reply_markup=ReplyKeyboardMarkup([CANCEL_MARKUP]),
                               parse_mode=ParseMode.HTML)
     return USERNAME
@@ -289,7 +311,7 @@ def login_username(update: Update, context: CallbackContext):
     if text in CANCEL_MARKUP:
         return login_cancel(update, context)
     redis.set(get_user_key(update, 'login_username'), text)
-    update.message.reply_text('Gib jetzt dein Passwort ein:', reply_markup=ReplyKeyboardMarkup([CANCEL_MARKUP]))
+    update.message.reply_text('Gib jetzt das <b>Passwort</b> von deinem Bibliotheks-Konto ein:', reply_markup=ReplyKeyboardMarkup([CANCEL_MARKUP]), parse_mode=ParseMode.HTML)
     return PASSWORD
 
 
@@ -369,7 +391,15 @@ def login_cancel(update: Update, context: CallbackContext):
 
 
 dispatcher.add_handler(CommandHandler('start', start))
-dispatcher.add_handler(MessageHandler(Filters.text(FREE_SEAT_MARKUP) & (~Filters.command), overview))
+day_time_selection = ConversationHandler(
+    entry_points=[MessageHandler(Filters.text(FREE_SEAT_MARKUP), day_selected)],
+    states={
+        TIME: [MessageHandler(Filters.text(DAYTIME_MARKUP), time_selected)],
+    },
+    fallbacks=[]
+)
+dispatcher.add_handler(day_time_selection)
+#dispatcher.add_handler(MessageHandler(Filters.text(FREE_SEAT_MARKUP) & (~Filters.command), overview))
 dispatcher.add_handler(MessageHandler(Filters.command, booking))
 dispatcher.add_handler(MessageHandler(Filters.text(ACCOUNT_MARKUP), reservations))
 dispatcher.add_handler(MessageHandler(Filters.text(EXTRA_MARKUP), extras))
@@ -381,7 +411,7 @@ login_conv_handler = ConversationHandler(
         PASSWORD: [MessageHandler(Filters.text & ~Filters.command, login_password)],
         CAPTCHA: [MessageHandler(Filters.text & ~Filters.command, login_captcha)]
     },
-    fallbacks=[MessageHandler(Filters.text('Abbrechen'), login_cancel)]
+    fallbacks=[MessageHandler(Filters.text(CANCEL_MARKUP), login_cancel)]
 )
 dispatcher.add_handler(login_conv_handler)
 
@@ -391,6 +421,7 @@ def cancel_command(update: Update, context: CallbackContext):
     login_clean(update)
     update.message.reply_text('Aktion abgebrochen.',
                               reply_markup=markup)
+
 
 def unknown_command(update: Update, context: CallbackContext):
     if update.message.from_user.is_bot:
@@ -408,3 +439,5 @@ dispatcher.add_handler(MessageHandler(~Filters.text(FREE_SEAT_MARKUP)
                                       & ~Filters.command, unknown_command))
 
 updater.start_polling()
+updater.idle()
+
