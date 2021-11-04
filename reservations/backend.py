@@ -36,6 +36,7 @@ class Backend:
         areas_json = redis.get(redis_key)
         areas = json.loads(areas_json) if areas_json else None
         if not areas:
+            print('Cache: reloading areas')
             r = self.get_request('/sitzplatzreservierung/')
             b = bs4.BeautifulSoup(r.text, 'lxml')
 
@@ -55,6 +56,7 @@ class Backend:
         daytimes_json = redis.get(redis_key)
         daytimes = json.loads(daytimes_json) if daytimes_json else None
         if not daytimes:
+            print('Cache: reloading daytimes')
             r = self.get_request('/sitzplatzreservierung/')
             b = bs4.BeautifulSoup(r.text, 'lxml')
 
@@ -85,6 +87,7 @@ class Backend:
         times_data = redis.get(redis_key)
         times = times_data.decode('UTF-8') if times_data else None
         if not times:
+            print('Cache: reloading times')
             r = self.get_request('/sitzplatzreservierung/')
             b = bs4.BeautifulSoup(r.text, 'lxml')
 
@@ -191,6 +194,7 @@ class Backend:
                     times[int(daytime)] = entries
 
         if not times:
+            print(f'Cache: reloading room entries on {date.date()} for {area}')
             r = self.get_request(url, cookies=cookies)
             b = bs4.BeautifulSoup(r.text, 'lxml')
 
