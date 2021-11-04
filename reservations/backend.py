@@ -256,7 +256,7 @@ class Backend:
                 row_index += 1
 
             # Adaptive expiry time for quick updates at important times
-            expiry_time = 15 * 60
+            expiry_time = 10 * 60
             now = datetime.datetime.now()
             # Times when unused bookings are freed
             if date.date() == now.date() and now.hour in [8, 13, 18] and 24 <= now.minute < 45:
@@ -264,9 +264,9 @@ class Backend:
             # Times around midnight and for current day
             elif (date.date() == now.date() and 5 <= now.hour <= 17) or \
                     now.hour in [0, 23]:
-                expiry_time = 10 * 60
+                expiry_time = 5 * 60
             elif date.date() - now.date() >= datetime.timedelta(days=2):
-                expiry_time = 30 * 60
+                expiry_time = 15 * 60
             redis.set(redis_key, json.dumps(times), ex=expiry_time)
 
         return times
