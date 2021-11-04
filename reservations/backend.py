@@ -47,7 +47,7 @@ class Backend:
                 params = urllib.parse.parse_qs(url.query)
                 number = ''.join(params['area'])
                 areas[number] = name
-            redis.set(redis_key, json.dumps(areas_json), ex=24 * 3600)
+            redis.set(redis_key, json.dumps(areas), ex=24 * 3600)
         return areas
 
     def get_daytimes(self) -> list:
