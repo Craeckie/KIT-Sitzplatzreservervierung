@@ -33,10 +33,8 @@ class Backend:
 
     def get_areas(self) -> dict:
         redis_key = f'areas'
-        areas = None
         areas_json = redis.get(redis_key)
-        if areas_json:
-            areas = json.loads(areas_json)
+        areas = json.loads(areas_json) if areas_json else None
         if not areas:
             r = self.get_request('/sitzplatzreservierung/')
             b = bs4.BeautifulSoup(r.text, 'lxml')
@@ -54,10 +52,8 @@ class Backend:
 
     def get_daytimes(self) -> list:
         redis_key = f'daytimes'
-        daytimes = None
         daytimes_json = redis.get(redis_key)
-        if daytimes_json:
-            daytimes = json.loads(daytimes_json)
+        daytimes = json.loads(daytimes_json) if daytimes_json else None
         if not daytimes:
             r = self.get_request('/sitzplatzreservierung/')
             b = bs4.BeautifulSoup(r.text, 'lxml')
@@ -86,7 +82,8 @@ class Backend:
 
     def get_times(self) -> str:
         redis_key = f'times'
-        times = redis.get(redis_key)
+        times_data = redis.get(redis_key)
+        times = times_data.decode('UTF-8') if times_data else None
         if not times:
             r = self.get_request('/sitzplatzreservierung/')
             b = bs4.BeautifulSoup(r.text, 'lxml')
@@ -105,7 +102,7 @@ class Backend:
                     for tag in time_div.contents
                     if (not tag.name or tag.name not in ['br', 'font'])
                        and tag.string.strip()])
-            redis.set(redis_key, times, ex=24 * 3600)
+            redis.set(redis_key, times.encode('UTF-8'), ex=24 * 3600)
         return times
 
     def login(self, user_id: str, user=None, password=None, captcha=None, cookies=None, login_required=False) -> RequestsCookieJar:
