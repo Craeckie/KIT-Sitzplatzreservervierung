@@ -76,7 +76,7 @@ def day_selected(update: Update, context: CallbackContext):
 
     redis.set(get_user_key(update, 'day_selected'), day_delta)
     context.bot.send_message(chat_id=update.effective_chat.id, text='Welche Zeit?', parse_mode='HTML',
-                             reply_markup=ReplyKeyboardMarkup([DAYTIME_MARKUP]))
+                             reply_markup=ReplyKeyboardMarkup([[d] for d in DAYTIME_MARKUP]))
     return TIME
 
 
