@@ -32,62 +32,81 @@ class Backend:
         self.areas = self.get_areas()
 
     def get_areas(self) -> dict:
-        r = self.get_request('/sitzplatzreservierung/')
-        b = bs4.BeautifulSoup(r.text, 'lxml')
+        redis_key = f'areas'
+        areas = None
+        areas_json = redis.get(redis_key)
+        if areas_json:
+            areas = json.loads(areas_json)
+        if not areas:
+            r = self.get_request('/sitzplatzreservierung/')
+            b = bs4.BeautifulSoup(r.text, 'lxml')
 
-        area_div = b.find('div', id='dwm_areas')
-        areas = {}
-        for li in area_div.find_all('li'):
-            name = li.text.strip()
-            url = urllib.parse.urlparse(li.a.get('href'))
-            params = urllib.parse.parse_qs(url.query)
-            number = ''.join(params['area'])
-            areas[number] = name
+            area_div = b.find('div', id='dwm_areas')
+            areas = {}
+            for li in area_div.find_all('li'):
+                name = li.text.strip()
+                url = urllib.parse.urlparse(li.a.get('href'))
+                params = urllib.parse.parse_qs(url.query)
+                number = ''.join(params['area'])
+                areas[number] = name
+            redis.set(redis_key, json.dumps(areas_json), ex=24 * 3600)
         return areas
 
     def get_daytimes(self) -> list:
-        r = self.get_request('/sitzplatzreservierung/')
-        b = bs4.BeautifulSoup(r.text, 'lxml')
+        redis_key = f'daytimes'
+        daytimes = None
+        daytimes_json = redis.get(redis_key)
+        if daytimes_json:
+            daytimes = json.loads(daytimes_json)
+        if not daytimes:
+            r = self.get_request('/sitzplatzreservierung/')
+            b = bs4.BeautifulSoup(r.text, 'lxml')
 
-        table = b.find(id="day_main")
+            table = b.find(id="day_main")
 
-        rows = [r for r in table.tbody.children
-                if type(r) == bs4.element.Tag
-                and ('even_row' in r.attrs["class"] or 'odd_row' in r.attrs["class"])]
-        daytimes = []
-        index = 0
-        for row in rows:
-            link = row.div.a
-            href = link.attrs['href']
-            seconds_match = re.search('timetohighlight=(.*)$', href)
-            seconds = seconds_match.group(1)
-            name = link.text
-            daytimes.append({
-                'name': name,
-                'seconds': seconds,
-                'index': index
-            })
-            index += 1
+            rows = [r for r in table.tbody.children
+                    if type(r) == bs4.element.Tag
+                    and ('even_row' in r.attrs["class"] or 'odd_row' in r.attrs["class"])]
+            daytimes = []
+            index = 0
+            for row in rows:
+                link = row.div.a
+                href = link.attrs['href']
+                seconds_match = re.search('timetohighlight=(.*)$', href)
+                seconds = seconds_match.group(1)
+                name = link.text
+                daytimes.append({
+                    'name': name,
+                    'seconds': seconds,
+                    'index': index
+                })
+                index += 1
+            redis.set(redis_key, json.dumps(daytimes), ex=24 * 3600)
         return daytimes
 
     def get_times(self) -> str:
-        r = self.get_request('/sitzplatzreservierung/')
-        b = bs4.BeautifulSoup(r.text, 'lxml')
+        redis_key = f'times'
+        times = redis.get(redis_key)
+        if not times:
+            r = self.get_request('/sitzplatzreservierung/')
+            b = bs4.BeautifulSoup(r.text, 'lxml')
 
-        time_div = b.find('font', style='color: #000000')
-        print([tag.string for tag in time_div.children])
-        strings = time_div.find_all(lambda tag:
-                                    tag.string or
-                                    tag.name == 'a',
-                                    text=True)
-        print(strings)
-        for tag in time_div.contents:
-            print(f'{tag}')
-        return '\n'.join([
-            str(tag) if isinstance(tag, bs4.element.Tag) else tag.string.strip()
-            for tag in time_div.contents
-            if (not tag.name or tag.name not in ['br', 'font'])
-               and tag.string.strip()])
+            time_div = b.find('font', style='color: #000000')
+            print([tag.string for tag in time_div.children])
+            strings = time_div.find_all(lambda tag:
+                                        tag.string or
+                                        tag.name == 'a',
+                                        text=True)
+            print(strings)
+            for tag in time_div.contents:
+                print(f'{tag}')
+            times = '\n'.join([
+                    str(tag) if isinstance(tag, bs4.element.Tag) else tag.string.strip()
+                    for tag in time_div.contents
+                    if (not tag.name or tag.name not in ['br', 'font'])
+                       and tag.string.strip()])
+            redis.set(redis_key, times, ex=24 * 3600)
+        return times
 
     def login(self, user_id: str, user=None, password=None, captcha=None, cookies=None, login_required=False) -> RequestsCookieJar:
         cookies_key = f'login-cookies:{user_id}'
@@ -236,10 +255,10 @@ class Backend:
                 row_index += 1
 
             # Adaptive expiry time for quick updates at important times
-            expiry_time = 300
+            expiry_time = 600
             now = datetime.datetime.now()
             # Times when unused bookings are freed
-            if date.date() == now.date() and now.hour in [9, 14, 18] and 24 <= now.minute < 45:
+            if date.date() == now.date() and now.hour in [8, 13, 18] and 24 <= now.minute < 45:
                 expiry_time = 15
             # Times around midnight and for current day
             elif (date.date() == now.date() and now.hour < 19) or \
@@ -440,7 +459,6 @@ class Backend:
             entry['date'] = date
             entries.append(entry)
         return entries
-
 
         # b = bs4.BeautifulSoup(res.text, 'lxml')
         # table = b.find(id="report_table")
