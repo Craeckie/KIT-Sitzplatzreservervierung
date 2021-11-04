@@ -1,16 +1,17 @@
 FROM python:3-alpine
+  
+RUN mkdir -p /opt/bot
 
-#RUN mkdir /sitzplatz-bot
+ENV VIRTUAL_ENV=/opt/bot/env
+RUN pip install --upgrade pip && \
+    apk add libxml2-dev libxslt-dev && \
+    python3 -m venv $VIRTUAL_ENV
+ENV PATH="$VIRTUAL_ENV/bin/:$PATH"
+
 COPY ./ /opt/bot
 WORKDIR /opt/bot
 
-ENV VIRTUAL_ENV=/opt/bot/env
-RUN python3 -m venv $VIRTUAL_ENV
-ENV PATH="$VIRTUAL_ENV/bin/:$PATH"
-
-
-RUN pip install --upgrade pip && \
-    apk add libxml2-dev libxslt-dev && apk add --virtual .build build-base && \
+RUN apk add --virtual .build build-base && \
     pip install -r requirements.txt && \
     apk del .build
 
