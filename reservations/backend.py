@@ -98,10 +98,14 @@ class Backend:
                                         tag.name == 'a',
                                         text=True)
             print(strings)
-            for tag in time_div.contents:
+            for tag in time_div.findAll(lambda tag: tag.name != 'a' and len(tag.attrs) > 0):
                 print(f'{tag}')
+                tag.attrs.clear()
+            for tag in time_div.contents:
+                if tag.name == 'span':
+                    tag.name = 'b'
             times = '\n'.join([
-                    str(tag) if isinstance(tag, bs4.element.Tag) else tag.string.strip()
+                    str(tag) if isinstance(tag, bs4.element.Tag) and tag.name in ['a', 'b', 'i', 'u', 'pre'] else tag.string.strip()
                     for tag in time_div.contents
                     if (not tag.name or tag.name not in ['br', 'font'])
                        and tag.string.strip()])
