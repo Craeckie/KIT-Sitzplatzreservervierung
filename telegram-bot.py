@@ -5,6 +5,7 @@ import os
 import logging
 import pickle
 import re
+import traceback
 from itertools import groupby
 
 from telegram.ext import Updater, ConversationHandler, CallbackContext
@@ -113,7 +114,8 @@ def time_selected(update: Update, context: CallbackContext):
                     msg += '\n'
                 msg += '\n'
     except Exception as e:
-        msg = 'Leider ist ein Fehler aufgetreten:\n' + str(e)
+        msg = 'Leider ist ein Fehler aufgetreten:\n' + str(e) + '\n'
+        msg += traceback.format_exc()
     context.bot.send_message(chat_id=update.effective_chat.id, text=msg, parse_mode='HTML',
                              reply_markup=markup)
     return ConversationHandler.END
