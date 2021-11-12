@@ -8,6 +8,7 @@ import urllib
 from enum import IntEnum
 from io import BytesIO
 from urllib.parse import urljoin
+from markdownify import markdownify as md
 
 import bs4
 import requests
@@ -93,30 +94,34 @@ class Backend:
             b = bs4.BeautifulSoup(r.text, 'lxml')
 
             try:
-                time_div = b.find('font', style='color: #000000')
-                print([tag.string for tag in time_div.children])
-                strings = time_div.find_all(lambda tag:
-                                            tag.string or
-                                            tag.name == 'a',
-                                            text=True)
-                print(strings)
-                for tag in time_div.findAll(lambda tag: tag.name != 'a' and len(tag.attrs) > 0):
-                    print(f'{tag}')
-                    tag.attrs.clear()
-                for tag in time_div.contents:
-                    if tag.name == 'span':
-                        tag.name = 'b'
-                times = '\n'.join([
-                        str(tag) if isinstance(tag, bs4.element.Tag) and tag.name in ['a', 'b', 'i', 'u', 'pre'] else tag.string.strip()
-                        for tag in time_div.contents
-                        if (not tag.name or tag.name not in ['br', 'font'])
-                           and tag.string.strip()])
+                time_div = b.find('div', id='hinweis')
+                for tag in time_div.findAll('a'):
+                    if 'title' in tag.attrs:
+                        del tag.attrs['title']
+
+                html = str(time_div).replace('*', '\\*')
+                times = md(str(html), strip=['hr'],
+                           strong_em_symbol='_').strip()
+                text = ''
+                parts = times.split('(')
+                for p in parts:
+                    if ')' in p:
+                        inner_parts = p.split(')')
+                        text += inner_parts[0] + ')'
+                        text += ''.join([markdown_strip_characters(p) for p in inner_parts[1:]])
+                        text += '('
+                    else:
+                        text += markdown_strip_characters(p) + '('
+                text = text[:-1]
+                times = text
+
                 redis.set(redis_key, times.encode('UTF-8'), ex=24 * 3600)
             except Exception as e:
                 with open('last-error-times.log', 'w') as f:
                     f.write(str(e) + '\n\n')
                     f.write(traceback.format_exc() + '\n\n')
-                    f.write(b + '\n')
+                    f.write(str(b) + '\n\n')
+                    f.write(str(r) + '\n')
 
         return times
 
@@ -267,25 +272,27 @@ class Backend:
                         col_index += 1
                     times[row_index] = row_entries
                     row_index += 1
+
+                    # Adaptive expiry time for quick updates at important times
+                    expiry_time = 10 * 60
+                    now = datetime.datetime.now()
+                    # Times when unused bookings are freed
+                    if date.date() == now.date() and now.hour in [8, 13, 18] and 24 <= now.minute < 45:
+                        expiry_time = 30
+                    # Times around midnight and for current day
+                    elif (date.date() == now.date() and 5 <= now.hour <= 17) or \
+                            now.hour in [0, 23]:
+                        expiry_time = 5 * 60
+                    elif date.date() - now.date() >= datetime.timedelta(days=2):
+                        expiry_time = 15 * 60
+                    redis.set(redis_key, json.dumps(times), ex=expiry_time)
             except Exception as e:
                 with open('last-error-room-entries.log', 'w') as f:
                     f.write(str(e) + '\n\n')
                     f.write(traceback.format_exc() + '\n\n')
-                    f.write(b + '\n')
+                    f.write(str(b) + '\n\n')
+                    f.write(str(r) + '\n')
 
-            # Adaptive expiry time for quick updates at important times
-            expiry_time = 10 * 60
-            now = datetime.datetime.now()
-            # Times when unused bookings are freed
-            if date.date() == now.date() and now.hour in [8, 13, 18] and 24 <= now.minute < 45:
-                expiry_time = 30
-            # Times around midnight and for current day
-            elif (date.date() == now.date() and 5 <= now.hour <= 17) or \
-                    now.hour in [0, 23]:
-                expiry_time = 5 * 60
-            elif date.date() - now.date() >= datetime.timedelta(days=2):
-                expiry_time = 15 * 60
-            redis.set(redis_key, json.dumps(times), ex=expiry_time)
 
         return times
 
@@ -559,3 +566,9 @@ def set_user_creds(user_id, data):
 def remove_user_creds(user_id):
     creds_key = f'login-creds:{user_id}'
     redis.delete(creds_key)
+
+
+def markdown_strip_characters(text):
+    for char in ['-', '!', '.']:
+        text = text.replace(char, f'\\{char}')
+    return text

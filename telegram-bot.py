@@ -231,7 +231,8 @@ def extras(update: Update, context: CallbackContext):
         html = str(b.get_times())
         print(html)
         update.message.reply_text(html, reply_markup=markup,
-                                  parse_mode=ParseMode.HTML)
+                                  parse_mode=ParseMode.MARKDOWN_V2,
+                                  disable_web_page_preview=True)
     elif update.message.text == 'Statistiken':
         msg = ''
         for d in range(0, 4):
