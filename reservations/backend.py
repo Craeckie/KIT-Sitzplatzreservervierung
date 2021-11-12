@@ -202,62 +202,67 @@ class Backend:
             r = self.get_request(url, cookies=cookies)
             b = bs4.BeautifulSoup(r.text, 'lxml')
 
-            table = b.find(id="day_main")
+            try:
+                table = b.find(id="day_main")
 
-            labels = [(list(t.strings)[1], t.attrs['data-room'])
-                      for t in list(table.thead.children)[1]
-                      if type(t) == bs4.element.Tag
-                      and 'data-room' in t.attrs]
+                labels = [(list(t.strings)[1], t.attrs['data-room'])
+                          for t in list(table.thead.children)[1]
+                          if type(t) == bs4.element.Tag
+                          and 'data-room' in t.attrs]
 
-            rows = [r for r in table.tbody.children
-                    if type(r) == bs4.element.Tag
-                    and ('even_row' in r.attrs["class"] or 'odd_row' in r.attrs["class"])]
-            rows[0].td.find(class_='celldiv').text.strip()
+                rows = [r for r in table.tbody.children
+                        if type(r) == bs4.element.Tag
+                        and ('even_row' in r.attrs["class"] or 'odd_row' in r.attrs["class"])]
+                rows[0].td.find(class_='celldiv').text.strip()
 
-            times = {}
-            row_index = 0
-            for row in rows:
-                row_entries = []
-                col_index = 0
-                row_label = 'N/A'
-                daytime = self.daytimes[0]
-                for column in row.find_all('td'):
-                    classes = column.attrs["class"]
-                    if 'row_labels' in classes:
-                        row_label = column.find(class_='celldiv').text.strip()
-                        # daytime = Daytime.MORNING if row_label == 'vormittags' else \
-                        #     Daytime.AFTERNOON if row_label == 'nachmittags' else \
-                        #         Daytime.EVENING
-                        #daytime = self.daytimes[row_label]
+                times = {}
+                row_index = 0
+                for row in rows:
+                    row_entries = []
+                    col_index = 0
+                    row_label = 'N/A'
+                    daytime = self.daytimes[0]
+                    for column in row.find_all('td'):
+                        classes = column.attrs["class"]
+                        if 'row_labels' in classes:
+                            row_label = column.find(class_='celldiv').text.strip()
+                            # daytime = Daytime.MORNING if row_label == 'vormittags' else \
+                            #     Daytime.AFTERNOON if row_label == 'nachmittags' else \
+                            #         Daytime.EVENING
+                            #daytime = self.daytimes[row_label]
 
-                        continue
-                    state = 'new' in classes and State.FREE or \
-                            'private' in classes and State.OCCUPIED or \
-                            'writable' in classes and State.MINE or \
-                            State.UNKNOWN
-                    occupier = state in [State.FREE, State.MINE] and None or \
-                               'I' in classes and 'Interne Buchungen' or \
-                               'K' in classes and 'KIT Studenten' or \
-                               'D' in classes and 'DHBW Studenten' or \
-                               'H' in classes and 'HsKa Studenten' or \
-                               'G' in classes and 'Private Buchungen' or \
-                               'P' in classes and 'Personal' or \
-                               'special'
-                    div = column.div
-                    entry_id = div.attrs['data-id'] if 'data-id' in div.attrs else None
+                            continue
+                        state = 'new' in classes and State.FREE or \
+                                'private' in classes and State.OCCUPIED or \
+                                'writable' in classes and State.MINE or \
+                                State.UNKNOWN
+                        occupier = state in [State.FREE, State.MINE] and None or \
+                                   'I' in classes and 'Interne Buchungen' or \
+                                   'K' in classes and 'KIT Studenten' or \
+                                   'D' in classes and 'DHBW Studenten' or \
+                                   'H' in classes and 'HsKa Studenten' or \
+                                   'G' in classes and 'Private Buchungen' or \
+                                   'P' in classes and 'Personal' or \
+                                   'special'
+                        div = column.div
+                        entry_id = div.attrs['data-id'] if 'data-id' in div.attrs else None
 
-                    label = labels[col_index]
-                    row_entries.append({
-                        'area': area,
-                        'seat': label[0],
-                        'room_id': label[1],
-                        'state': state,
-                        'occupier': occupier,
-                        'entry_id': entry_id
-                    })
-                    col_index += 1
-                times[row_index] = row_entries
-                row_index += 1
+                        label = labels[col_index]
+                        row_entries.append({
+                            'area': area,
+                            'seat': label[0],
+                            'room_id': label[1],
+                            'state': state,
+                            'occupier': occupier,
+                            'entry_id': entry_id
+                        })
+                        col_index += 1
+                    times[row_index] = row_entries
+                    row_index += 1
+            except Exception as e:
+                with open('last-error.log', 'w') as f:
+                    f.write(e + '\n')
+                    f.write(b + '\n')
 
             # Adaptive expiry time for quick updates at important times
             expiry_time = 10 * 60
