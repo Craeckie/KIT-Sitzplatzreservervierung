@@ -3,6 +3,7 @@ import json
 import os
 import pickle
 import re
+import traceback
 import urllib
 from enum import IntEnum
 from io import BytesIO
@@ -91,25 +92,32 @@ class Backend:
             r = self.get_request('/sitzplatzreservierung/')
             b = bs4.BeautifulSoup(r.text, 'lxml')
 
-            time_div = b.find('font', style='color: #000000')
-            print([tag.string for tag in time_div.children])
-            strings = time_div.find_all(lambda tag:
-                                        tag.string or
-                                        tag.name == 'a',
-                                        text=True)
-            print(strings)
-            for tag in time_div.findAll(lambda tag: tag.name != 'a' and len(tag.attrs) > 0):
-                print(f'{tag}')
-                tag.attrs.clear()
-            for tag in time_div.contents:
-                if tag.name == 'span':
-                    tag.name = 'b'
-            times = '\n'.join([
-                    str(tag) if isinstance(tag, bs4.element.Tag) and tag.name in ['a', 'b', 'i', 'u', 'pre'] else tag.string.strip()
-                    for tag in time_div.contents
-                    if (not tag.name or tag.name not in ['br', 'font'])
-                       and tag.string.strip()])
-            redis.set(redis_key, times.encode('UTF-8'), ex=24 * 3600)
+            try:
+                time_div = b.find('font', style='color: #000000')
+                print([tag.string for tag in time_div.children])
+                strings = time_div.find_all(lambda tag:
+                                            tag.string or
+                                            tag.name == 'a',
+                                            text=True)
+                print(strings)
+                for tag in time_div.findAll(lambda tag: tag.name != 'a' and len(tag.attrs) > 0):
+                    print(f'{tag}')
+                    tag.attrs.clear()
+                for tag in time_div.contents:
+                    if tag.name == 'span':
+                        tag.name = 'b'
+                times = '\n'.join([
+                        str(tag) if isinstance(tag, bs4.element.Tag) and tag.name in ['a', 'b', 'i', 'u', 'pre'] else tag.string.strip()
+                        for tag in time_div.contents
+                        if (not tag.name or tag.name not in ['br', 'font'])
+                           and tag.string.strip()])
+                redis.set(redis_key, times.encode('UTF-8'), ex=24 * 3600)
+            except Exception as e:
+                with open('last-error-times.log', 'w') as f:
+                    f.write(str(e) + '\n\n')
+                    f.write(traceback.format_exc() + '\n\n')
+                    f.write(b + '\n')
+
         return times
 
     def login(self, user_id: str, user=None, password=None, captcha=None, cookies=None, login_required=False) -> RequestsCookieJar:
@@ -260,8 +268,9 @@ class Backend:
                     times[row_index] = row_entries
                     row_index += 1
             except Exception as e:
-                with open('last-error.log', 'w') as f:
-                    f.write(e + '\n')
+                with open('last-error-room-entries.log', 'w') as f:
+                    f.write(str(e) + '\n\n')
+                    f.write(traceback.format_exc() + '\n\n')
                     f.write(b + '\n')
 
             # Adaptive expiry time for quick updates at important times
