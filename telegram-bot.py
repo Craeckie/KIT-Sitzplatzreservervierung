@@ -43,7 +43,7 @@ CANCEL_MARKUP = ['Abbrechen']
 NEW_LOGIN_MARKUP = ['Neu einloggen']
 DAYTIME_MARKUP = [daytime['name'].title() for daytime in b.daytimes]
 
-USERNAME, PASSWORD, CAPTCHA = range(3)
+USERNAME, PASSWORD, CAPTCHA, RESERVATIONS, BOOK = range(5)
 TIME, DAY = range(2)
 
 
@@ -54,6 +54,7 @@ def check_login(update: Update, login_required=False):
         markup = ReplyKeyboardMarkup([FREE_SEAT_MARKUP, ACCOUNT_MARKUP, EXTRA_MARKUP])
     else:
         markup = ReplyKeyboardMarkup([FREE_SEAT_MARKUP, LOGIN_MARKUP])
+    update.message.reply_chat_action(ChatAction.TYPING)
     return cookies, markup
 
 
@@ -215,12 +216,14 @@ def reservations(update: Update, context: CallbackContext):
             pin_message = True
         else:
             msg = 'Du hast aktuell keine Reservierungen.'
-        sent_message = update.message.reply_text(msg, parse_mode=ParseMode.HTML)
+        sent_message = update.message.reply_text(msg, parse_mode=ParseMode.HTML, reply_markup=markup)
         context.bot.unpin_all_chat_messages(chat_id=sent_message.chat_id)
         sent_message.pin(disable_notification=True)
     else:
-        update.message.reply_text('Zuerst musst du dich einloggen. Klicke dazu unten auf Login.',
-                                  reply_markup=markup)
+        # update.message.reply_text('Zuerst musst du dich einloggen. Klicke dazu unten auf Login.',
+        #                           reply_markup=markup)
+        redis.set(get_user_key(update, 'captcha_next'), RESERVATIONS)
+        return show_captcha(update, context)
 
 
 def extras(update: Update, context: CallbackContext):
@@ -325,6 +328,10 @@ def login_password(update: Update, context: CallbackContext):
         return login_cancel(update, context)
     update.message.reply_chat_action(ChatAction.TYPING)
     redis.set(get_user_key(update, 'login_password'), text)
+    return show_captcha(update, context)
+
+
+def show_captcha(update: Update, context: CallbackContext):
     photo, cookies = b.get_captcha()
     if photo:
         redis.set(get_user_key(update, 'login_cookies'), pickle.dumps(cookies))
@@ -370,9 +377,16 @@ def login_captcha(update: Update, context: CallbackContext):
                       cookies=cookies,
                       login_required=True)
     if cookies:
-        update.message.reply_text('Erfolgreich eingeloggt!\n'
-                                  'Die Nachrichten mit deinen Login-Daten kannst du jetzt löschen.',
-                                  reply_markup=ReplyKeyboardMarkup([FREE_SEAT_MARKUP, ACCOUNT_MARKUP, EXTRA_MARKUP]))
+        next_key = get_user_key(update, 'captcha_next')
+        next_val = redis.get(next_key)
+        next_step = int(next_val) if next_val else None
+        redis.delete(next_key)
+        if next_step == RESERVATIONS:
+            reservations(update, context)
+        else:
+            update.message.reply_text('Erfolgreich eingeloggt!\n'
+                                      'Die Nachrichten mit deinen Login-Daten kannst du jetzt löschen.',
+                                      reply_markup=ReplyKeyboardMarkup([FREE_SEAT_MARKUP, ACCOUNT_MARKUP, EXTRA_MARKUP]))
     else:
         update.message.reply_text('Login fehlgeschlagen :(',
                                   reply_markup=ReplyKeyboardMarkup([FREE_SEAT_MARKUP, LOGIN_MARKUP]))
@@ -404,15 +418,17 @@ day_time_selection = ConversationHandler(
 dispatcher.add_handler(day_time_selection)
 #dispatcher.add_handler(MessageHandler(Filters.text(FREE_SEAT_MARKUP) & (~Filters.command), overview))
 dispatcher.add_handler(MessageHandler(Filters.command, booking))
-dispatcher.add_handler(MessageHandler(Filters.text(ACCOUNT_MARKUP), reservations))
+#dispatcher.add_handler(MessageHandler(Filters.text(ACCOUNT_MARKUP), reservations))
 dispatcher.add_handler(MessageHandler(Filters.text(EXTRA_MARKUP), extras))
 
 login_conv_handler = ConversationHandler(
-    entry_points=[MessageHandler(Filters.text(LOGIN_MARKUP), login)],
+    entry_points=[MessageHandler(Filters.text(LOGIN_MARKUP), login),
+                  MessageHandler(Filters.text(ACCOUNT_MARKUP), reservations)],
     states={
         USERNAME: [MessageHandler(Filters.text & ~Filters.command, login_username)],
         PASSWORD: [MessageHandler(Filters.text & ~Filters.command, login_password)],
-        CAPTCHA: [MessageHandler(Filters.text & ~Filters.command, login_captcha)]
+        CAPTCHA: [MessageHandler(Filters.text & ~Filters.command, login_captcha)],
+        RESERVATIONS: [MessageHandler(Filters.text & ~Filters.command, reservations)],
     },
     fallbacks=[MessageHandler(Filters.text(CANCEL_MARKUP), login_cancel)]
 )
