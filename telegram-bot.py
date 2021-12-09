@@ -322,10 +322,11 @@ def login_username(update: Update, context: CallbackContext):
 
 
 def login_password(update: Update, context: CallbackContext):
-    user_id = update.message.from_user.id
     text = update.message.text
     if text in CANCEL_MARKUP:
         return login_cancel(update, context)
+    else:
+        update.message.delete()
     update.message.reply_chat_action(ChatAction.TYPING)
     redis.set(get_user_key(update, 'login_password'), text)
     return show_captcha(update, context)
