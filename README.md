@@ -1,4 +1,4 @@
-# KIT-Sitzplatzreservervierung
+# KIT-Sitzplatzreservierung
 
 ## Getting Started
 
@@ -8,9 +8,6 @@
 ## Configuration
 You need to set the following environment variables:
 - **BOT_TOKEN** is your bot token
-- Currently, only free seats can be queried, which doesn't require an account
-- ~~**SP_USER** is your library account number~~
-- ~~**SP_PASS** is your library account password~~
 
 Optionally you can set a proxy:
 - **PROXY** to e.g. `socks5h://127.0.0.1:9050`
