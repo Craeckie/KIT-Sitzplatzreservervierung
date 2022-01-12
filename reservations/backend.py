@@ -99,7 +99,9 @@ class Backend:
                     if 'title' in tag.attrs:
                         del tag.attrs['title']
 
-                html = str(time_div).replace('*', '\\*')
+                html = str(time_div).replace('*', '\\*') \
+                                    .replace('(', '\\(') \
+                                    .replace(')', '\\)')
                 times = md(str(html), strip=['hr'],
                            strong_em_symbol='_').strip()
                 text = ''
@@ -107,6 +109,7 @@ class Backend:
                 for p in parts:
                     if ')' in p:
                         inner_parts = p.split(')')
+                        inner_parts[0] = markdown_strip_characters(inner_parts[0])
                         text += inner_parts[0] + ')'
                         text += ''.join([markdown_strip_characters(p) for p in inner_parts[1:]])
                         text += '('
