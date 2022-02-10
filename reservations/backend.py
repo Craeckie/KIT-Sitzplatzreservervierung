@@ -314,7 +314,10 @@ class Backend:
 
     def get_day_entries(self, date: datetime.datetime, areas=None, cookies: RequestsCookieJar = None) -> dict:
         entries = {}
-        for area in areas if areas else [a for a in self.areas.keys()]:
+        areas = areas if areas else [a for a in self.areas.keys()]
+        #ToDo: shuffle, but keep order on output
+        #random.shuffle(areas)
+        for area in areas:
             room_entries = self.get_room_entries(date, area, cookies=cookies)
             entries.update({
                 area: room_entries
