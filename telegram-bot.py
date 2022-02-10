@@ -47,7 +47,7 @@ TIME, DAY = range(2)
 
 
 def clear_state(update: Update):
-    redis.delete(get_user_key(update, 'day_selected'))
+    #redis.delete(get_user_key(update, 'day_selected'))
     redis.delete(get_user_key(update, 'login_username'))
     redis.delete(get_user_key(update, 'login_password'))
     redis.delete(get_user_key(update, 'login_cookies'))
@@ -89,8 +89,14 @@ def day_selected(update: Update, context: CallbackContext):
 
 
 def time_selected(update: Update, context: CallbackContext):
-    day_delta = int(redis.get(get_user_key(update, 'day_selected')))
-    clear_state(update)
+    day_value = redis.get(get_user_key(update, 'day_selected'))
+    if day_value is None:
+        cookies, markup = check_login(update)
+        context.bot.send_message(chat_id=update.effective_chat.id, text='Wähle zuerst einen Tag aus.', parse_mode='HTML',
+                                 reply_markup=markup)
+        return
+    day_delta = int(day_value)
+    redis.delete(get_user_key(update, 'day_selected'))
     cookies, markup = check_login(update)
     text = update.message.text
     daytime = -1
@@ -186,7 +192,7 @@ def booking(update: Update, context: CallbackContext):
 
 
 def reservations(update: Update, context: CallbackContext):
-    clear_state(update)
+    #clear_state(update)
     update.message.reply_chat_action(ChatAction.TYPING)
     cookies, markup = check_login(update, login_required=True)
     update.message.reply_chat_action(ChatAction.TYPING)
@@ -236,7 +242,7 @@ def reservations(update: Update, context: CallbackContext):
 
 
 def extras(update: Update, context: CallbackContext):
-    clear_state(update)
+    #clear_state(update)
     update.message.reply_chat_action(ChatAction.TYPING)
     cookies, markup = check_login(update)
     update.message.reply_chat_action(ChatAction.TYPING)
@@ -413,13 +419,29 @@ def login_cancel(update: Update, context: CallbackContext):
     return ConversationHandler.END
 
 
+def cancel_command(update: Update, context: CallbackContext):
+    cookies, markup = check_login(update)
+    clear_state(update)
+    update.message.reply_text('Aktion abgebrochen.',
+                              reply_markup=markup)
+
+
+def unknown_command(update: Update, context: CallbackContext):
+    if update.message.from_user.is_bot:
+        return
+    cookies, markup = check_login(update)
+    update.message.reply_text('Unbekannter Befehl. Benutze die Buttons unten, um Funktionen aufzurufen.',
+                              reply_markup=markup)
+
 dispatcher.add_handler(CommandHandler('start', start))
 day_time_selection = ConversationHandler(
     entry_points=[MessageHandler(Filters.text(FREE_SEAT_MARKUP), day_selected)],
     states={
         TIME: [MessageHandler(Filters.text(DAYTIME_MARKUP), time_selected)],
     },
-    fallbacks=[]
+    #fallbacks=[MessageHandler(Filters.text, cancel_command)],
+    fallbacks=[],
+    allow_reentry=True
 )
 dispatcher.add_handler(day_time_selection)
 #dispatcher.add_handler(MessageHandler(Filters.text(FREE_SEAT_MARKUP) & (~Filters.command), overview))
@@ -440,20 +462,6 @@ login_conv_handler = ConversationHandler(
 )
 dispatcher.add_handler(login_conv_handler)
 
-
-def cancel_command(update: Update, context: CallbackContext):
-    cookies, markup = check_login(update)
-    clear_state(update)
-    update.message.reply_text('Aktion abgebrochen.',
-                              reply_markup=markup)
-
-
-def unknown_command(update: Update, context: CallbackContext):
-    if update.message.from_user.is_bot:
-        return
-    cookies, markup = check_login(update)
-    update.message.reply_text('Unbekannter Befehl. Benutze die Buttons unten, um Funktionen aufzurufen.',
-                              reply_markup=markup)
 
 
 dispatcher.add_handler(MessageHandler(Filters.text(CANCEL_MARKUP), cancel_command))
