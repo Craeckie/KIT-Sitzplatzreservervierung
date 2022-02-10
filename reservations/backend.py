@@ -282,12 +282,14 @@ class Backend:
                 # Adaptive expiry time for quick updates at important times
                 expiry_time = 10 * 60
                 now = datetime.datetime.now()
-                if free_seats_min < 5:
-                    expiry_time = 60
+                if free_seats_min == 0:
+                    expiry_time = 20
+                elif free_seats_min < 5:
+                    expiry_time = 10
                 elif free_seats_min < 10:
-                    expiry_time = 2 * 60
+                    expiry_time = 30
                 elif free_seats_min < 15:
-                    expiry_time = 4 * 60
+                    expiry_time = 60
                 # Times when unused bookings are freed / new day comes
                 elif date.date() == now.date() and now.hour in [23] + list(range(8, 19)):
                     minutes_to_next_half_hour = 30 - now.minute % 30
