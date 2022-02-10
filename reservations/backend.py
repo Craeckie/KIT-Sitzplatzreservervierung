@@ -279,17 +279,19 @@ class Backend:
 
                 free_seats_min = min(len([entry for entry in entries if entry['state'] == State.FREE])
                                      for row_index, entries in times.items())
+                total_seats = min(len([entry for entry in entries])
+                                     for row_index, entries in times.items())
 
                 # Adaptive expiry time for quick updates at important times
                 expiry_time = 10 * 60
                 now = datetime.datetime.now()
                 if free_seats_min == 0:
                     expiry_time = 30
-                elif free_seats_min < 5:
+                elif free_seats_min < 5 and total_seats >= 10:
                     expiry_time = 15
-                elif free_seats_min < 10:
+                elif free_seats_min < 10 and total_seats >= 20:
                     expiry_time = 60
-                elif free_seats_min < 15:
+                elif free_seats_min < 15 and total_seats >= 30:
                     expiry_time = 2 * 60
                 # Times when unused bookings are freed / new day comes
                 elif date.date() == now.date() and now.hour in [23] + list(range(8, 19)):
