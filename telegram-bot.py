@@ -6,15 +6,14 @@ import logging
 import pickle
 import re
 import traceback
-from itertools import groupby
 
 from telegram.ext import Updater, ConversationHandler, CallbackContext
 from telegram.ext import CommandHandler, MessageHandler, Filters
-from telegram import ReplyKeyboardMarkup, ReplyKeyboardRemove, Update, ParseMode, ChatAction
+from telegram import ReplyKeyboardMarkup, Update, ParseMode, ChatAction
 
 from reservations import redis
 from reservations.backend import Backend, State, get_user_creds, remove_user_creds
-from reservations.query import group_bookings, get_own_bookings
+from reservations.query import group_bookings
 
 logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
                     level=logging.INFO)
