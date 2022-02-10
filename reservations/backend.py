@@ -2,6 +2,7 @@ import datetime
 import json
 import os
 import pickle
+import random
 import re
 import logging
 import traceback
@@ -215,7 +216,6 @@ class Backend:
                     times[int(daytime)] = entries
 
         if not times:
-            logging.info(f'Cache: reloading room entries on {date.date()} for {self.areas[area]}')
             r = self.get_request(url, cookies=cookies)
             b = bs4.BeautifulSoup(r.text, 'lxml')
 
@@ -284,9 +284,9 @@ class Backend:
                 expiry_time = 10 * 60
                 now = datetime.datetime.now()
                 if free_seats_min == 0:
-                    expiry_time = 20
+                    expiry_time = 30
                 elif free_seats_min < 5:
-                    expiry_time = 10
+                    expiry_time = 15
                 elif free_seats_min < 10:
                     expiry_time = 60
                 elif free_seats_min < 15:
@@ -300,6 +300,8 @@ class Backend:
                         expiry_time = min(5 * 60,  minutes_to_next_half_hour * 60)
                 elif date.date() - now.date() >= datetime.timedelta(days=2):
                     expiry_time = 15 * 60
+                expiry_time = max(0, expiry_time + random.randrange(-10, 10))
+                logging.info(f'Cache: reloaded room entries on {date.date()} for {self.areas[area]}, expires in {expiry_time} seconds')
                 redis.set(redis_key, json.dumps(times), ex=expiry_time)
             except Exception as e:
                 with open('last-error-room-entries.log', 'w') as f:
