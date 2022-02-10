@@ -323,6 +323,7 @@ class Backend:
                         'date': date,
                         'daytime': daytime,
                         'seat': seat,
+                        'state': seat["state"],
                         'room': room_name,
                         'area': seat['area']
                     })

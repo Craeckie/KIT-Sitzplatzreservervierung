@@ -108,8 +108,7 @@ def time_selected(update: Update, context: CallbackContext):
     try:
         date = datetime.datetime.today() + datetime.timedelta(days=day_delta)
         bookings = b.search_bookings(start_day=date,
-                                     daytimes=[daytime],
-                                     state=State.FREE)
+                                     daytimes=[daytime])
         update.message.reply_chat_action(ChatAction.TYPING)
         grouped = group_bookings(b, bookings, b.areas)
         msg = f'<b>{date.strftime(DATE_FORMAT)}</b>\n'
@@ -118,14 +117,16 @@ def time_selected(update: Update, context: CallbackContext):
                 daytime_str = b.daytimes[daytime]["name"].title()
                 msg += f'<pre>{daytime_str}</pre>\n'
                 for room, seats in rooms.items():
-                    msg += f'{room}: {len(seats)}'
-                    if len(seats) <= 3:
-                        msg += ' (' + ', '.join(
-                            [format_seat_command(day_delta, daytime, s) for s in seats]) + ')'
-                    else:
-                        area = seats[0]['area']
-                        msg += f' /B{day_delta}_{int(daytime)}_{area}'
-                    msg += '\n'
+                    free_seats = [seat for seat in seats if seat['state'] == State.FREE]
+                    if len(free_seats) > 0:
+                        msg += f'{room}: {len(free_seats)}/{len(seats)}'
+                        if len(free_seats) <= 3:
+                            msg += ' (' + ', '.join(
+                                [format_seat_command(day_delta, daytime, s) for s in free_seats]) + ')'
+                        else:
+                            area = seats[0]['area']
+                            msg += f' /B{day_delta}_{int(daytime)}_{area}'
+                        msg += '\n'
                 msg += '\n'
     except Exception as e:
         msg = 'Leider ist ein Fehler aufgetreten:\n' + str(e) + '\n'
