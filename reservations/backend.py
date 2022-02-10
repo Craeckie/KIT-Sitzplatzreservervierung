@@ -3,6 +3,7 @@ import json
 import os
 import pickle
 import re
+import logging
 import traceback
 import urllib
 from enum import IntEnum
@@ -214,7 +215,7 @@ class Backend:
                     times[int(daytime)] = entries
 
         if not times:
-            print(f'Cache: reloading room entries on {date.date()} for {area}')
+            logging.info(f'Cache: reloading room entries on {date.date()} for {self.areas[area]}')
             r = self.get_request(url, cookies=cookies)
             b = bs4.BeautifulSoup(r.text, 'lxml')
 
@@ -287,9 +288,9 @@ class Backend:
                 elif free_seats_min < 5:
                     expiry_time = 10
                 elif free_seats_min < 10:
-                    expiry_time = 30
-                elif free_seats_min < 15:
                     expiry_time = 60
+                elif free_seats_min < 15:
+                    expiry_time = 2 * 60
                 # Times when unused bookings are freed / new day comes
                 elif date.date() == now.date() and now.hour in [23] + list(range(8, 19)):
                     minutes_to_next_half_hour = 30 - now.minute % 30
