@@ -46,6 +46,13 @@ USERNAME, PASSWORD, CAPTCHA, RESERVATIONS, BOOK = range(5)
 TIME, DAY = range(2)
 
 
+def clear_state(update: Update):
+    redis.delete(get_user_key(update, 'day_selected'))
+    redis.delete(get_user_key(update, 'login_username'))
+    redis.delete(get_user_key(update, 'login_password'))
+    redis.delete(get_user_key(update, 'login_cookies'))
+
+
 def check_login(update: Update, login_required=False):
     user_id = update.message.from_user.id
     cookies = b.login(user_id, login_required=login_required)
@@ -82,8 +89,9 @@ def day_selected(update: Update, context: CallbackContext):
 
 
 def time_selected(update: Update, context: CallbackContext):
-    cookies, markup = check_login(update)
     day_delta = int(redis.get(get_user_key(update, 'day_selected')))
+    clear_state(update)
+    cookies, markup = check_login(update)
     text = update.message.text
     daytime = -1
     for cur_daytime in b.daytimes:
@@ -122,6 +130,7 @@ def time_selected(update: Update, context: CallbackContext):
 
 
 def booking(update: Update, context: CallbackContext):
+    global b
     update.message.reply_chat_action(ChatAction.TYPING)
     text = update.message.text
     m = re.match(
@@ -177,6 +186,7 @@ def booking(update: Update, context: CallbackContext):
 
 
 def reservations(update: Update, context: CallbackContext):
+    clear_state(update)
     update.message.reply_chat_action(ChatAction.TYPING)
     cookies, markup = check_login(update, login_required=True)
     update.message.reply_chat_action(ChatAction.TYPING)
@@ -226,6 +236,7 @@ def reservations(update: Update, context: CallbackContext):
 
 
 def extras(update: Update, context: CallbackContext):
+    clear_state(update)
     update.message.reply_chat_action(ChatAction.TYPING)
     cookies, markup = check_login(update)
     update.message.reply_chat_action(ChatAction.TYPING)
@@ -369,7 +380,8 @@ def login_captcha(update: Update, context: CallbackContext):
     cookies_pickle = redis.get(get_user_key(update, 'login_cookies'))
     cookies = pickle.loads(cookies_pickle) if cookies_pickle else None
     captcha = update.message.text
-    login_clean(update)
+    clear_state(update)
+
     cookies = b.login(user_id=user_id,
                       user=username,
                       password=password,
@@ -394,14 +406,8 @@ def login_captcha(update: Update, context: CallbackContext):
     return ConversationHandler.END
 
 
-def login_clean(update: Update):
-    redis.delete(get_user_key(update, 'login_username'))
-    redis.delete(get_user_key(update, 'login_password'))
-    redis.delete(get_user_key(update, 'login_cookies'))
-
-
 def login_cancel(update: Update, context: CallbackContext):
-    login_clean(update)
+    clear_state(update)
     update.message.reply_text('Login abgebrochen',
                               reply_markup=ReplyKeyboardMarkup([FREE_SEAT_MARKUP, LOGIN_MARKUP]))
     return ConversationHandler.END
@@ -437,7 +443,7 @@ dispatcher.add_handler(login_conv_handler)
 
 def cancel_command(update: Update, context: CallbackContext):
     cookies, markup = check_login(update)
-    login_clean(update)
+    clear_state(update)
     update.message.reply_text('Aktion abgebrochen.',
                               reply_markup=markup)
 
