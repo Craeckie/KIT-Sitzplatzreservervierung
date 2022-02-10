@@ -288,9 +288,9 @@ class Backend:
                 if free_seats_min == 0:
                     expiry_time = 30
                 elif free_seats_min < 5 and total_seats >= 10:
-                    expiry_time = 15
+                    expiry_time = 10
                 elif free_seats_min < 10 and total_seats >= 20:
-                    expiry_time = 60
+                    expiry_time = 25
                 elif free_seats_min < 15 and total_seats >= 30:
                     expiry_time = 2 * 60
                 # Times when unused bookings are freed / new day comes
