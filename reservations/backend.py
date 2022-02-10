@@ -276,26 +276,34 @@ class Backend:
                     times[row_index] = row_entries
                     row_index += 1
 
-                    # Adaptive expiry time for quick updates at important times
-                    expiry_time = 10 * 60
-                    now = datetime.datetime.now()
-                    # Times when unused bookings are freed
-                    if date.date() == now.date() and now.hour in [8, 13, 18] and 24 <= now.minute < 45:
-                        expiry_time = 30
-                    # Times around midnight and for current day
-                    elif (date.date() == now.date() and 5 <= now.hour <= 17) or \
-                            now.hour in [0, 23]:
-                        expiry_time = 5 * 60
-                    elif date.date() - now.date() >= datetime.timedelta(days=2):
-                        expiry_time = 15 * 60
-                    redis.set(redis_key, json.dumps(times), ex=expiry_time)
+                free_seats_min = min(len([entry for entry in entries if entry['state'] == State.FREE])
+                                     for row_index, entries in times.items())
+
+                # Adaptive expiry time for quick updates at important times
+                expiry_time = 10 * 60
+                now = datetime.datetime.now()
+                if free_seats_min < 5:
+                    expiry_time = 60
+                elif free_seats_min < 10:
+                    expiry_time = 2 * 60
+                elif free_seats_min < 15:
+                    expiry_time = 4 * 60
+                # Times when unused bookings are freed / new day comes
+                elif date.date() == now.date() and now.hour in [23] + list(range(8, 19)):
+                    minutes_to_next_half_hour = 30 - now.minute % 30
+                    if minutes_to_next_half_hour == 0:
+                        expiry_time = 60 - now.second
+                    else:
+                        expiry_time = min(5 * 60,  minutes_to_next_half_hour * 60)
+                elif date.date() - now.date() >= datetime.timedelta(days=2):
+                    expiry_time = 15 * 60
+                redis.set(redis_key, json.dumps(times), ex=expiry_time)
             except Exception as e:
                 with open('last-error-room-entries.log', 'w') as f:
                     f.write(str(e) + '\n\n')
                     f.write(traceback.format_exc() + '\n\n')
                     f.write(str(b) + '\n\n')
                     f.write(str(r) + '\n')
-
 
         return times
 
