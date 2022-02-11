@@ -1,4 +1,5 @@
 import datetime
+import json
 import locale
 import math
 import os
@@ -139,30 +140,57 @@ def time_selected(update: Update, context: CallbackContext):
 def booking(update: Update, context: CallbackContext):
     global b
     update.message.reply_chat_action(ChatAction.TYPING)
+
+    values = None
+    values_key = get_user_key(update, 'booking_info')
+
+    # Booking interrupted by captcha
+    captcha_values_key = 'booking_captcha_values'
+    captcha_values_bytes = redis.get(get_user_key(update, captcha_values_key))
+    if captcha_values_bytes:
+        redis.delete(captcha_values_key)
+        values = json.loads(captcha_values_bytes)
+
     text = update.message.text
-    m = re.match(
+    m1 = re.match(
         '^/B(?P<day_delta>[0-9])_(?P<daytime>[0-9])_(?P<room>[0-9]+)_(?P<room_id>[A-Z0-9]+)_(?P<seat>[A-Z0-9_]+)$',
         text)
-    if m:
-        cookies, markup = check_login(update, login_required=True)
-        if cookies:
-            user_id = update.message.from_user.id
-            values = m.groupdict()
-            values['seat'] = values['seat'].replace('_', ' ')
-            success, msg = b.book_seat(user_id=user_id,
+    m2 = re.match(
+        '^/B_(?P<room_id>[A-Z0-9]+)_(?P<seat>[A-Z0-9_]+)$',
+        text)
+    if m1 or m2 or values:
+        user_id = update.message.from_user.id
+        if m1:
+            values = m1.groupdict()
+        elif m2:
+            values_binary = redis.get(values_key)
+            redis.delete(values_key)
+            values = json.loads(values_binary) if values_binary else None
+            seat_values = m2.groupdict()
+            values.update(seat_values)
+
+        if values:
+            cookies, markup = check_login(update, login_required=True)
+            if cookies:
+                values['seat'] = values['seat'].replace('_', ' ')
+                success, msg = b.book_seat(user_id=user_id,
                                          cookies=cookies,
                                          **values)
-            update.message.reply_text(
-                (msg if msg else 'Erfolgreich gebucht!') if success else
-                'Buchung ist leider fehlgeschlagen.' + (f'\nFehler: {msg}' if msg else ''),
-                reply_markup=markup)
+                update.message.reply_text(
+                    (msg if msg else 'Erfolgreich gebucht!') if success else
+                    'Buchung ist leider fehlgeschlagen.' + (f'\nFehler: {msg}' if msg else ''),
+                    reply_markup=markup)
+            else:
+                redis.set(get_user_key(update, captcha_values_key), json.dumps(values))
+                redis.set(get_user_key(update, 'captcha_next'), BOOK)
+                return show_captcha(update, context)
         else:
-            update.message.reply_text('Zuerst musst du dich einloggen. Klicke dazu unten auf Login.',
-                                      reply_markup=markup)
+            update.message.reply_text('Es ist ein Fehler aufgetreten, versuche es nochmal.', reply_markup=markup)
     else:
         m = re.match('^/B(?P<day_delta>[0-9])_(?P<daytime>[0-9])_(?P<room>[0-9]+)$', text)
         if m:
             values = m.groupdict()
+            redis.set(values_key, json.dumps(values))
             bookings = b.search_bookings(
                 start_day=datetime.datetime.today() + datetime.timedelta(days=int(values['day_delta'])),
                 state=State.FREE,
@@ -171,7 +199,9 @@ def booking(update: Update, context: CallbackContext):
             seat_markup = []
             row_count = math.ceil(len(bookings) / 3)
             for i in range(0, row_count):
-                row = [format_seat_command(values['day_delta'], values['daytime'], b) for b in
+                #row = [format_seat_command(values['day_delta'], values['daytime'], b) for b in
+                #      bookings[i * 3: (i + 1) * 3]]
+                row = [f"/B_{b['seat']['room_id']}_{b['seat']['seat'].replace(' ', '_')}" for b in
                        bookings[i * 3: (i + 1) * 3]]
                 seat_markup.append(row)
             seat_markup.append(['Abbrechen'])
@@ -406,6 +436,8 @@ def login_captcha(update: Update, context: CallbackContext):
         redis.delete(next_key)
         if next_step == RESERVATIONS:
             reservations(update, context)
+        elif next_step == BOOK:
+            booking(update, context)
         else:
             update.message.reply_text('Erfolgreich eingeloggt!\n'
                                       'Die Nachrichten mit deinen Login-Daten kannst du jetzt löschen.',
