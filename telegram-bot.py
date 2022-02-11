@@ -482,13 +482,14 @@ day_time_selection = ConversationHandler(
 )
 dispatcher.add_handler(day_time_selection)
 #dispatcher.add_handler(MessageHandler(Filters.text(FREE_SEAT_MARKUP) & (~Filters.command), overview))
-dispatcher.add_handler(MessageHandler(Filters.command, booking))
+#dispatcher.add_handler(MessageHandler(Filters.command, booking))
 #dispatcher.add_handler(MessageHandler(Filters.text(ACCOUNT_MARKUP), reservations))
 dispatcher.add_handler(MessageHandler(Filters.text(EXTRA_MARKUP), extras))
 
 login_conv_handler = ConversationHandler(
     entry_points=[MessageHandler(Filters.text(LOGIN_MARKUP), login),
-                  MessageHandler(Filters.text(ACCOUNT_MARKUP), reservations)],
+                  MessageHandler(Filters.text(ACCOUNT_MARKUP), reservations),
+                  MessageHandler(Filters.command, booking)],
     states={
         USERNAME: [MessageHandler(Filters.text & ~Filters.command, login_username)],
         PASSWORD: [MessageHandler(Filters.text & ~Filters.command, login_password)],
