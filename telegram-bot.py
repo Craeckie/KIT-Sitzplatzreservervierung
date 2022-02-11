@@ -221,10 +221,10 @@ def reservations(update: Update, context: CallbackContext):
                 if last_date is not None:  # not first entry
                     msg += '\n'
                 if cur_date != last_date:
-                    msg += f'<pre>{cur_date}</pre>\n'
+                    msg += f'<b>{cur_date}</b>\n'
                 if 'daytime' in booking:
                     daytime = booking["daytime"]
-                    msg += f'<i>{daytime}</i>\n'
+                    msg += f'<pre>{daytime}</pre>\n'
                 msg += f"{booking['room']}: " \
                        f"Platz {booking['seat']} . Löschen: " \
                        f"/C{booking['id']}\n"
