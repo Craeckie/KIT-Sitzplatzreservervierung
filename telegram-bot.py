@@ -183,10 +183,14 @@ def booking(update: Update, context: CallbackContext):
                 entry_id = m.group('entry_id')
                 user_id = update.message.from_user.id
                 cookies, markup = check_login(update, login_required=True)
-                success, error = b.cancel_reservation(user_id, entry_id, cookies)
-                update.message.reply_text('Reservierung erfolgreich gelöscht.' if success else
-                                          'Löschen fehlgeschlagen.' + (f'\nFehler: {error}' if error else ''),
-                                          reply_markup=markup)
+                if cookies:
+                    success, error = b.cancel_reservation(user_id, entry_id, cookies)
+                    update.message.reply_text('Reservierung erfolgreich gelöscht.' if success else
+                                              'Löschen fehlgeschlagen.' + (f'\nFehler: {error}' if error else ''),
+                                              reply_markup=markup)
+                else:
+                    update.message.reply_text('Zuerst musst du dich einloggen. Klicke dazu unten auf Login.',
+                                              reply_markup=markup)
             else:
                 context.bot.send_message(chat_id=update.effective_chat.id, text='Unbekannter Befehl', parse_mode='HTML',
                                          reply_markup=FREE_SEAT_MARKUP)
