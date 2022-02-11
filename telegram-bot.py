@@ -358,7 +358,7 @@ def show_captcha(update: Update, context: CallbackContext):
     if photo:
         redis.set(get_user_key(update, 'login_cookies'), pickle.dumps(cookies))
         msg = 'Gib nun die Zeichen im Captcha ein'
-        markup = [CANCEL_MARKUP]
+        markup = [NEW_LOGIN_MARKUP, CANCEL_MARKUP]
         update.message.reply_photo(photo=photo,
                                    caption=msg,
                                    reply_markup=ReplyKeyboardMarkup(markup))
