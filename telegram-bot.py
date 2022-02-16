@@ -119,7 +119,9 @@ def time_selected(update: Update, context: CallbackContext):
                 for room, seats in rooms.items():
                     free_seats = [seat for seat in seats if seat['state'] == State.FREE]
                     if len(free_seats) > 0:
-                        msg += f'{room}: {len(free_seats)}/{len(seats)}'
+                        cached = len(free_seats) > 0 and free_seats[0]['cached']
+                        msg += f'<i>{room}</i>' if cached else room
+                        msg += f': {len(free_seats)}/{len(seats)}'
                         if len(free_seats) <= 3:
                             msg += ' (' + ', '.join(
                                 [format_seat_command(day_delta, daytime, s) for s in free_seats]) + ')'
@@ -274,7 +276,7 @@ def extras(update: Update, context: CallbackContext):
                 else:
                     type_counts[occ_type] = 1
                 room_id = int(seat['area'])
-                room_name = 'KIT' if room_id in [19, 20, 21, 34, 35, 37] else \
+                room_name = 'KIT' if room_id in [20, 19, 21, 42, 34, 35, 44, 40, 25, 24, 37] else \
                     'DHBW' if room_id == 32 else \
                         'HsKa' if room_id in [28, 29] else \
                             'KIT Nord' if room_id == 26 else \
@@ -358,7 +360,7 @@ def show_captcha(update: Update, context: CallbackContext):
     if photo:
         redis.set(get_user_key(update, 'login_cookies'), pickle.dumps(cookies))
         msg = 'Gib nun die Zeichen im Captcha ein'
-        markup = [CANCEL_MARKUP]
+        markup = [NEW_LOGIN_MARKUP, CANCEL_MARKUP]
         update.message.reply_photo(photo=photo,
                                    caption=msg,
                                    reply_markup=ReplyKeyboardMarkup(markup))
