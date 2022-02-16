@@ -302,7 +302,7 @@ class Backend:
                         expiry_time = min(5 * 60,  minutes_to_next_half_hour * 60)
                 elif date.date() - now.date() >= datetime.timedelta(days=2):
                     expiry_time = 15 * 60
-                expiry_time = max(0, expiry_time + random.randrange(-10, 10))
+                expiry_time = max(0, expiry_time + random.randrange(-5, 5))
                 logging.info(f'Cache: reloaded room entries on {date.date()} for {self.areas[area]}, expires in {expiry_time} seconds')
                 redis.set(redis_key, json.dumps(times), ex=expiry_time)
             except Exception as e:
