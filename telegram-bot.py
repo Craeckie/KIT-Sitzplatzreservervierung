@@ -120,7 +120,9 @@ def time_selected(update: Update, context: CallbackContext):
                 for room, seats in rooms.items():
                     free_seats = [seat for seat in seats if seat['state'] == State.FREE]
                     if len(free_seats) > 0:
-                        msg += f'{room}: {len(free_seats)}/{len(seats)}'
+                        cached = len(seats) > 0 and seats[0]['cached']
+                        msg += f'<i>{room}</i>' if cached else room
+                        msg += f': {len(free_seats)}/{len(seats)}'
                         if len(free_seats) <= 3:
                             msg += ' (' + ', '.join(
                                 [format_seat_command(day_delta, daytime, s) for s in free_seats]) + ')'

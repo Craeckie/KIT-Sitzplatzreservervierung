@@ -204,6 +204,7 @@ class Backend:
     def get_room_entries(self, date: datetime.datetime, area, cookies: RequestsCookieJar = None) -> dict:
         url = get_day_url(date, area)
 
+        cached = False
         times = {}
         redis_key = f'room_entries:{date.strftime("%y-%m-%d")}:{area}'
         if not cookies:
@@ -214,6 +215,7 @@ class Backend:
                     for entry in entries:
                         entry['state'] = State(entry['state'])
                     times[int(daytime)] = entries
+                    cached = True
 
         if not times:
             r = self.get_request(url, cookies=cookies)
@@ -312,17 +314,17 @@ class Backend:
                     f.write(str(b) + '\n\n')
                     f.write(str(r) + '\n')
 
-        return times
+        return times, cached
 
     def get_day_entries(self, date: datetime.datetime, areas=None, cookies: RequestsCookieJar = None) -> dict:
         entries = {}
         areas = areas if areas else [a for a in self.areas.keys()]
         #ToDo: shuffle, but keep order on output
         #random.shuffle(areas)
-        for area in areas:
-            room_entries = self.get_room_entries(date, area, cookies=cookies)
+        for area in areas if areas else [a for a in self.areas.keys()]:
+            room_entries, cached = self.get_room_entries(date, area, cookies=cookies)
             entries.update({
-                area: room_entries
+                area: (room_entries, cached)
             })
         return entries
 
@@ -334,7 +336,7 @@ class Backend:
                         cookies: RequestsCookieJar = None) -> list[dict]:
         bookings = []
 
-        def time_bookings(time_entries: list, daytime):
+        def time_bookings(time_entries: list, daytime, cached=False):
             for seat in time_entries:
                 if not state or seat["state"] == state:
                     bookings.append({
@@ -343,15 +345,16 @@ class Backend:
                         'seat': seat,
                         'state': seat["state"],
                         'room': room_name,
-                        'area': seat['area']
+                        'area': seat['area'],
+                        'cached': cached
                     })
 
         for date in rrule.rrule(rrule.DAILY, count=day_count, dtstart=start_day):
             day_entries = self.get_day_entries(date, areas=areas, cookies=cookies)
-            for room_name, room_entries in day_entries.items():
+            for room_name, (room_entries, cached) in day_entries.items():
                 if daytimes is None:
                     for time_name, time_entries in room_entries.items():
-                        time_bookings(time_entries, time_name)
+                        time_bookings(time_entries, time_name, cached)
                 else:
                     # if isinstance(daytimes, type(self.daytimes)):
                     #     daytimes = [daytimes]
@@ -359,7 +362,7 @@ class Backend:
                     #     daytimes = [repr(self.daytimes(d)) for d in daytimes]
                     for daytime in daytimes:
                         if daytime < len(room_entries):
-                            time_bookings(room_entries[daytime], daytime)
+                            time_bookings(room_entries[daytime], daytime, cached)
 
         return bookings
 
