@@ -130,7 +130,8 @@ class Backend:
 
         return times
 
-    def login(self, user_id: str, user=None, password=None, captcha=None, cookies=None, login_required=False) -> RequestsCookieJar:
+    def login(self, user_id: str, user=None, password=None, captcha=None, cookies=None, login_required=False) \
+            -> RequestsCookieJar|None:
         cookies_key = f'login-cookies:{user_id}'
         if not cookies:
             cookies_pickle = redis.get(cookies_key)
@@ -201,7 +202,7 @@ class Backend:
         # photo.seek(0)
         return res.content, res.cookies
 
-    def get_room_entries(self, date: datetime.datetime, area, cookies: RequestsCookieJar = None) -> dict:
+    def get_room_entries(self, date: datetime.datetime, area, cookies: RequestsCookieJar = None) -> tuple[dict, bool]:
         url = get_day_url(date, area)
 
         cached = False
@@ -459,7 +460,7 @@ class Backend:
         else:
             return False, None
 
-    def get_reservations(self, user_id, cookies: RequestsCookieJar) -> list[dict]:
+    def get_reservations(self, user_id, cookies: RequestsCookieJar) -> list[dict]|None:
         creds = get_user_creds(user_id)
         user = creds['user']
 
