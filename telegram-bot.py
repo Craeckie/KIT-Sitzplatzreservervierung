@@ -304,7 +304,7 @@ def extras(update: Update, context: CallbackContext):
                 else:
                     type_counts[occ_type] = 1
                 room_id = int(seat['area'])
-                room_name = 'KIT' if room_id in [19, 20, 21, 34, 35, 37] else \
+                room_name = 'KIT' if room_id in [20, 19, 21, 42, 34, 35, 44, 40, 25, 24, 37] else \
                     'DHBW' if room_id == 32 else \
                         'HsKa' if room_id in [28, 29] else \
                             'KIT Nord' if room_id == 26 else \
