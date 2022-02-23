@@ -30,6 +30,8 @@ if proxy:
 updater = Updater(token=os.environ.get('BOT_TOKEN'), request_kwargs=request_kwargs)
 dispatcher = updater.dispatcher
 
+server_notice = os.environ.get('SERVER_NOTICE')
+
 base_url = 'https://raumbuchung.bibliothek.kit.edu/sitzplatzreservierung/'
 
 b = Backend(base_url)
@@ -133,6 +135,8 @@ def time_selected(update: Update, context: CallbackContext):
     except Exception as e:
         msg = 'Leider ist ein Fehler aufgetreten:\n' + str(e) + '\n'
         msg += traceback.format_exc()
+    if server_notice:
+        msg += f'\n<i>{server_notice}</i>'
     context.bot.send_message(chat_id=update.effective_chat.id, text=msg, parse_mode='HTML',
                              reply_markup=markup)
     return ConversationHandler.END
@@ -458,7 +462,8 @@ if maintenance_notice:
         update.message.reply_text(maintenance_notice.replace('\\n', '\n'),
                                   parse_mode=ParseMode.HTML,
                                   reply_markup=markup)
-    dispatcher.add_handler(MessageHandler(Filters.text | Filters.command, out_of_order))
+    dispatcher.add_handler(MessageHandler(Filters.text('Zeiten'), extras))
+    dispatcher.add_handler(MessageHandler(Filters.text & ~Filters.text('Zeiten') | Filters.command, out_of_order))
 else:
     dispatcher.add_handler(day_time_selection)
     #dispatcher.add_handler(MessageHandler(Filters.text(FREE_SEAT_MARKUP) & (~Filters.command), overview))
