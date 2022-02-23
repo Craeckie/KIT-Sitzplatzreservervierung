@@ -450,33 +450,41 @@ day_time_selection = ConversationHandler(
     fallbacks=[],
     allow_reentry=True
 )
-dispatcher.add_handler(day_time_selection)
-#dispatcher.add_handler(MessageHandler(Filters.text(FREE_SEAT_MARKUP) & (~Filters.command), overview))
-dispatcher.add_handler(MessageHandler(Filters.command, booking))
-#dispatcher.add_handler(MessageHandler(Filters.text(ACCOUNT_MARKUP), reservations))
-dispatcher.add_handler(MessageHandler(Filters.text(EXTRA_MARKUP), extras))
 
-login_conv_handler = ConversationHandler(
-    entry_points=[MessageHandler(Filters.text(LOGIN_MARKUP), login),
-                  MessageHandler(Filters.text(ACCOUNT_MARKUP), reservations)],
-    states={
-        USERNAME: [MessageHandler(Filters.text & ~Filters.command, login_username)],
-        PASSWORD: [MessageHandler(Filters.text & ~Filters.command, login_password)],
-        CAPTCHA: [MessageHandler(Filters.text & ~Filters.command, login_captcha)],
-        RESERVATIONS: [MessageHandler(Filters.text & ~Filters.command, reservations)],
-    },
-    fallbacks=[MessageHandler(Filters.text(CANCEL_MARKUP), login_cancel)]
-)
-dispatcher.add_handler(login_conv_handler)
+maintenance_notice = os.environ.get('MAINTENANCE_NOTICE')
+if maintenance_notice:
+    def out_of_order(update: Update, context: CallbackContext):
+        cookies, markup = check_login(update)
+        update.message.reply_text(maintenance_notice.replace('\\n', '\n'),
+                                  parse_mode=ParseMode.HTML,
+                                  reply_markup=markup)
+    dispatcher.add_handler(MessageHandler(Filters.text | Filters.command, out_of_order))
+else:
+    dispatcher.add_handler(day_time_selection)
+    #dispatcher.add_handler(MessageHandler(Filters.text(FREE_SEAT_MARKUP) & (~Filters.command), overview))
+    dispatcher.add_handler(MessageHandler(Filters.command, booking))
+    #dispatcher.add_handler(MessageHandler(Filters.text(ACCOUNT_MARKUP), reservations))
+    dispatcher.add_handler(MessageHandler(Filters.text(EXTRA_MARKUP), extras))
 
+    login_conv_handler = ConversationHandler(
+        entry_points=[MessageHandler(Filters.text(LOGIN_MARKUP), login),
+                      MessageHandler(Filters.text(ACCOUNT_MARKUP), reservations)],
+        states={
+            USERNAME: [MessageHandler(Filters.text & ~Filters.command, login_username)],
+            PASSWORD: [MessageHandler(Filters.text & ~Filters.command, login_password)],
+            CAPTCHA: [MessageHandler(Filters.text & ~Filters.command, login_captcha)],
+            RESERVATIONS: [MessageHandler(Filters.text & ~Filters.command, reservations)],
+        },
+        fallbacks=[MessageHandler(Filters.text(CANCEL_MARKUP), login_cancel)]
+    )
+    dispatcher.add_handler(login_conv_handler)
 
-
-dispatcher.add_handler(MessageHandler(Filters.text(CANCEL_MARKUP), cancel_command))
-dispatcher.add_handler(MessageHandler(~Filters.text(FREE_SEAT_MARKUP)
-                                      & ~Filters.text(ACCOUNT_MARKUP)
-                                      & ~Filters.text(LOGIN_MARKUP)
-                                      & ~Filters.text(EXTRA_MARKUP)
-                                      & ~Filters.command, unknown_command))
+    dispatcher.add_handler(MessageHandler(Filters.text(CANCEL_MARKUP), cancel_command))
+    dispatcher.add_handler(MessageHandler(~Filters.text(FREE_SEAT_MARKUP)
+                                          & ~Filters.text(ACCOUNT_MARKUP)
+                                          & ~Filters.text(LOGIN_MARKUP)
+                                          & ~Filters.text(EXTRA_MARKUP)
+                                          & ~Filters.command, unknown_command))
 
 updater.start_polling()
 updater.idle()
