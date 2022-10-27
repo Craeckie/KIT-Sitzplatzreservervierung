@@ -2,7 +2,9 @@ import datetime
 import json
 import os
 import pickle
+import random
 import re
+import logging
 import traceback
 import urllib
 from enum import IntEnum
@@ -128,7 +130,8 @@ class Backend:
 
         return times
 
-    def login(self, user_id: str, user=None, password=None, captcha=None, cookies=None, login_required=False) -> RequestsCookieJar:
+    def login(self, user_id: str, user=None, password=None, captcha=None, cookies=None, login_required=False) \
+            -> RequestsCookieJar|None:
         cookies_key = f'login-cookies:{user_id}'
         if not cookies:
             cookies_pickle = redis.get(cookies_key)
@@ -199,9 +202,10 @@ class Backend:
         # photo.seek(0)
         return res.content, res.cookies
 
-    def get_room_entries(self, date: datetime.datetime, area, cookies: RequestsCookieJar = None) -> dict:
+    def get_room_entries(self, date: datetime.datetime, area, cookies: RequestsCookieJar = None) -> tuple[dict, bool]:
         url = get_day_url(date, area)
 
+        cached = False
         times = {}
         redis_key = f'room_entries:{date.strftime("%y-%m-%d")}:{area}'
         if not cookies:
@@ -212,9 +216,9 @@ class Backend:
                     for entry in entries:
                         entry['state'] = State(entry['state'])
                     times[int(daytime)] = entries
+                    cached = True
 
         if not times:
-            print(f'Cache: reloading room entries on {date.date()} for {area}')
             r = self.get_request(url, cookies=cookies)
             b = bs4.BeautifulSoup(r.text, 'lxml')
 
@@ -276,19 +280,34 @@ class Backend:
                     times[row_index] = row_entries
                     row_index += 1
 
-                    # Adaptive expiry time for quick updates at important times
-                    expiry_time = 10 * 60
-                    now = datetime.datetime.now()
-                    # Times when unused bookings are freed
-                    if date.date() == now.date() and now.hour in [8, 13, 18] and 24 <= now.minute < 45:
-                        expiry_time = 30
-                    # Times around midnight and for current day
-                    elif (date.date() == now.date() and 5 <= now.hour <= 17) or \
-                            now.hour in [0, 23]:
-                        expiry_time = 5 * 60
-                    elif date.date() - now.date() >= datetime.timedelta(days=2):
-                        expiry_time = 15 * 60
-                    redis.set(redis_key, json.dumps(times), ex=expiry_time)
+                free_seats_min = min(len([entry for entry in entries if entry['state'] == State.FREE])
+                                     for row_index, entries in times.items())
+                total_seats = min(len([entry for entry in entries])
+                                     for row_index, entries in times.items())
+
+                # Adaptive expiry time for quick updates at important times
+                expiry_time = 10 * 60
+                now = datetime.datetime.now()
+                if free_seats_min == 0:
+                    expiry_time = 30
+                elif free_seats_min < 5 and total_seats >= 10:
+                    expiry_time = 10
+                elif free_seats_min < 10 and total_seats >= 20:
+                    expiry_time = 25
+                elif free_seats_min < 15 and total_seats >= 30:
+                    expiry_time = 2 * 60
+                # Times when unused bookings are freed / new day comes
+                elif date.date() == now.date() and now.hour in [23] + list(range(8, 19)):
+                    minutes_to_next_half_hour = 30 - now.minute % 30
+                    if minutes_to_next_half_hour == 0:
+                        expiry_time = 60 - now.second
+                    else:
+                        expiry_time = min(5 * 60,  minutes_to_next_half_hour * 60)
+                elif date.date() - now.date() >= datetime.timedelta(days=2):
+                    expiry_time = 15 * 60
+                expiry_time = max(0, expiry_time + random.randrange(-5, 5))
+                logging.info(f'Cache: reloaded room entries on {date.date()} for {self.areas[area]}, expires in {expiry_time} seconds')
+                redis.set(redis_key, json.dumps(times), ex=expiry_time)
             except Exception as e:
                 with open('last-error-room-entries.log', 'w') as f:
                     f.write(str(e) + '\n\n')
@@ -296,15 +315,17 @@ class Backend:
                     f.write(str(b) + '\n\n')
                     f.write(str(r) + '\n')
 
-
-        return times
+        return times, cached
 
     def get_day_entries(self, date: datetime.datetime, areas=None, cookies: RequestsCookieJar = None) -> dict:
         entries = {}
+        areas = areas if areas else [a for a in self.areas.keys()]
+        #ToDo: shuffle, but keep order on output
+        #random.shuffle(areas)
         for area in areas if areas else [a for a in self.areas.keys()]:
-            room_entries = self.get_room_entries(date, area, cookies=cookies)
+            room_entries, cached = self.get_room_entries(date, area, cookies=cookies)
             entries.update({
-                area: room_entries
+                area: (room_entries, cached)
             })
         return entries
 
@@ -316,23 +337,25 @@ class Backend:
                         cookies: RequestsCookieJar = None) -> list[dict]:
         bookings = []
 
-        def time_bookings(time_entries: list, daytime):
+        def time_bookings(time_entries: list, daytime, cached=False):
             for seat in time_entries:
                 if not state or seat["state"] == state:
                     bookings.append({
                         'date': date,
                         'daytime': daytime,
                         'seat': seat,
+                        'state': seat["state"],
                         'room': room_name,
-                        'area': seat['area']
+                        'area': seat['area'],
+                        'cached': cached
                     })
 
         for date in rrule.rrule(rrule.DAILY, count=day_count, dtstart=start_day):
             day_entries = self.get_day_entries(date, areas=areas, cookies=cookies)
-            for room_name, room_entries in day_entries.items():
+            for room_name, (room_entries, cached) in day_entries.items():
                 if daytimes is None:
                     for time_name, time_entries in room_entries.items():
-                        time_bookings(time_entries, time_name)
+                        time_bookings(time_entries, time_name, cached)
                 else:
                     # if isinstance(daytimes, type(self.daytimes)):
                     #     daytimes = [daytimes]
@@ -340,7 +363,7 @@ class Backend:
                     #     daytimes = [repr(self.daytimes(d)) for d in daytimes]
                     for daytime in daytimes:
                         if daytime < len(room_entries):
-                            time_bookings(room_entries[daytime], daytime)
+                            time_bookings(room_entries[daytime], daytime, cached)
 
         return bookings
 
@@ -437,7 +460,7 @@ class Backend:
         else:
             return False, None
 
-    def get_reservations(self, user_id, cookies: RequestsCookieJar) -> list[dict]:
+    def get_reservations(self, user_id, cookies: RequestsCookieJar) -> list[dict]|None:
         creds = get_user_creds(user_id)
         user = creds['user']
 

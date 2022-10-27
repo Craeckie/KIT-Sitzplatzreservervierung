@@ -110,8 +110,7 @@ def time_selected(update: Update, context: CallbackContext):
     try:
         date = datetime.datetime.today() + datetime.timedelta(days=day_delta)
         bookings = b.search_bookings(start_day=date,
-                                     daytimes=[daytime],
-                                     state=State.FREE)
+                                     daytimes=[daytime])
         update.message.reply_chat_action(ChatAction.TYPING)
         grouped = group_bookings(b, bookings, b.areas)
         msg = f'<b>{date.strftime(DATE_FORMAT)}</b>\n'
@@ -120,14 +119,18 @@ def time_selected(update: Update, context: CallbackContext):
                 daytime_str = b.daytimes[daytime]["name"].title()
                 msg += f'<pre>{daytime_str}</pre>\n'
                 for room, seats in rooms.items():
-                    msg += f'{room}: {len(seats)}'
-                    if len(seats) <= 3:
-                        msg += ' (' + ', '.join(
-                            [format_seat_command(day_delta, daytime, s) for s in seats]) + ')'
-                    else:
-                        area = seats[0]['area']
-                        msg += f' /B{day_delta}_{int(daytime)}_{area}'
-                    msg += '\n'
+                    free_seats = [seat for seat in seats if seat['state'] == State.FREE]
+                    if len(free_seats) > 0:
+                        cached = len(free_seats) > 0 and free_seats[0]['cached']
+                        msg += f'<i>{room}</i>' if cached else room
+                        msg += f': {len(free_seats)}/{len(seats)}'
+                        if len(free_seats) <= 3:
+                            msg += ' (' + ', '.join(
+                                [format_seat_command(day_delta, daytime, s) for s in free_seats]) + ')'
+                        else:
+                            area = seats[0]['area']
+                            msg += f' /B{day_delta}_{int(daytime)}_{area}'
+                        msg += '\n'
                 msg += '\n'
     except Exception as e:
         msg = 'Leider ist ein Fehler aufgetreten:\n' + str(e) + '\n'
@@ -186,10 +189,14 @@ def booking(update: Update, context: CallbackContext):
                 entry_id = m.group('entry_id')
                 user_id = update.message.from_user.id
                 cookies, markup = check_login(update, login_required=True)
-                success, error = b.cancel_reservation(user_id, entry_id, cookies)
-                update.message.reply_text('Reservierung erfolgreich gelöscht.' if success else
-                                          'Löschen fehlgeschlagen.' + (f'\nFehler: {error}' if error else ''),
-                                          reply_markup=markup)
+                if cookies:
+                    success, error = b.cancel_reservation(user_id, entry_id, cookies)
+                    update.message.reply_text('Reservierung erfolgreich gelöscht.' if success else
+                                              'Löschen fehlgeschlagen.' + (f'\nFehler: {error}' if error else ''),
+                                              reply_markup=markup)
+                else:
+                    update.message.reply_text('Zuerst musst du dich einloggen. Klicke dazu unten auf Login.',
+                                              reply_markup=markup)
             else:
                 context.bot.send_message(chat_id=update.effective_chat.id, text='Unbekannter Befehl', parse_mode='HTML',
                                          reply_markup=FREE_SEAT_MARKUP)
@@ -349,7 +356,11 @@ def login_password(update: Update, context: CallbackContext):
         update.message.delete()
     update.message.reply_chat_action(ChatAction.TYPING)
     redis.set(get_user_key(update, 'login_password'), text)
-    return show_captcha(update, context)
+    captcha_enabled = os.environ.get('CAPTCHA', 'false')
+    if captcha_enabled and captcha_enabled.lower() == 'true':
+        return show_captcha(update, context)
+    else:
+        return login_captcha(update, context)
 
 
 def show_captcha(update: Update, context: CallbackContext):
@@ -357,7 +368,7 @@ def show_captcha(update: Update, context: CallbackContext):
     if photo:
         redis.set(get_user_key(update, 'login_cookies'), pickle.dumps(cookies))
         msg = 'Gib nun die Zeichen im Captcha ein'
-        markup = [CANCEL_MARKUP]
+        markup = [NEW_LOGIN_MARKUP, CANCEL_MARKUP]
         update.message.reply_photo(photo=photo,
                                    caption=msg,
                                    reply_markup=ReplyKeyboardMarkup(markup))
