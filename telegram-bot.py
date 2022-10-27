@@ -356,7 +356,11 @@ def login_password(update: Update, context: CallbackContext):
         update.message.delete()
     update.message.reply_chat_action(ChatAction.TYPING)
     redis.set(get_user_key(update, 'login_password'), text)
-    return show_captcha(update, context)
+    captcha_enabled = os.environ.get('CAPTCHA', 'false')
+    if captcha_enabled and captcha_enabled.lower() == 'true':
+        return show_captcha(update, context)
+    else:
+        return login_captcha(update, context)
 
 
 def show_captcha(update: Update, context: CallbackContext):
