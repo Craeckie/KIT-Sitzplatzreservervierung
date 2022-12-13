@@ -592,6 +592,8 @@ def set_user_creds(user_id, data):
 def remove_user_creds(user_id):
     creds_key = f'login-creds:{user_id}'
     redis.delete(creds_key)
+    cookies_key = f'login-cookies:{user_id}'
+    redis.delete(cookies_key)
 
 
 def markdown_strip_characters(text):

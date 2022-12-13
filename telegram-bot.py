@@ -32,6 +32,8 @@ dispatcher = updater.dispatcher
 
 server_notice = os.environ.get('SERVER_NOTICE')
 
+captcha_enabled = os.environ.get('CAPTCHA_ENABLED', '').lower() == 'true'
+
 base_url = 'https://raumbuchung.bibliothek.kit.edu/sitzplatzreservierung/'
 
 b = Backend(base_url)
@@ -39,7 +41,7 @@ b = Backend(base_url)
 FREE_SEAT_MARKUP = ['Heute', 'Morgen', 'In 2 Tagen', 'In 3 Tagen']
 ACCOUNT_MARKUP = ['Reservierungen']
 LOGIN_MARKUP = ['Login']
-EXTRA_MARKUP = ['Zeiten', 'Statistiken']
+EXTRA_MARKUP = ['Zeiten', 'Statistiken', 'Ausloggen']
 CANCEL_MARKUP = ['Abbrechen']
 NEW_LOGIN_MARKUP = ['Neu einloggen']
 DAYTIME_MARKUP = [daytime['name'].title() for daytime in b.daytimes]
@@ -246,10 +248,16 @@ def reservations(update: Update, context: CallbackContext):
         context.bot.unpin_all_chat_messages(chat_id=sent_message.chat_id)
         sent_message.pin(disable_notification=True)
     else:
-        # update.message.reply_text('Zuerst musst du dich einloggen. Klicke dazu unten auf Login.',
-        #                           reply_markup=markup)
-        redis.set(get_user_key(update, 'captcha_next'), RESERVATIONS)
-        return show_captcha(update, context)
+        if captcha_enabled:
+            redis.set(get_user_key(update, 'captcha_next'), RESERVATIONS)
+            return show_captcha(update, context)
+        else:
+            update.message.reply_text('Um dich einzuloggen musst du leider deine Kontodaten eingeben.\n'
+                                      'Es ist (soweit ich weiß) noch kein <a href="https://oauth.net/">Oauth</a> für die Sitzplatzreservierung implementiert.\n'
+                                      'Gib nun die <b>Kontonummer</b> von deinem Bibliotheks-Konto ein:',
+                                      reply_markup=ReplyKeyboardMarkup([CANCEL_MARKUP]),
+                                      parse_mode=ParseMode.HTML)
+            return USERNAME
 
 
 def extras(update: Update, context: CallbackContext):
@@ -301,6 +309,11 @@ def extras(update: Update, context: CallbackContext):
             msg += '\n'.join(f'{room}: {count}' for room, count in room_counts.items())
         update.message.reply_text(msg, reply_markup=markup,
                                   parse_mode=ParseMode.HTML)
+    elif update.message.text == 'Ausloggen':
+        user_id = update.message.from_user.id
+        remove_user_creds(user_id)
+        update.message.reply_text("Erfolreich ausgeloggt", reply_markup=markup,
+                                  parse_mode=ParseMode.MARKDOWN_V2)
 
 
 def format_seat_command(day_delta, daytime: int, booking:dict, reserved=False):
@@ -318,19 +331,25 @@ def login(update: Update, context: CallbackContext):
     user_id = update.message.from_user.id
     creds = get_user_creds(user_id)
     if creds:
-        photo, cookies = b.get_captcha()
-        if photo:
-            redis.set(get_user_key(update, 'login_cookies'), pickle.dumps(cookies))
-            msg = 'Gib nun die Zeichen im Captcha ein.\nWenn du dich neu einloggen willst, klicke unten auf den Knopf.'
-            markup = [NEW_LOGIN_MARKUP, CANCEL_MARKUP]
-            update.message.reply_photo(photo=photo,
-                                       caption=msg,
-                                       reply_markup=ReplyKeyboardMarkup(markup))
-            return CAPTCHA
+        if captcha_enabled:
+            photo, cookies = b.get_captcha()
+            if photo:
+                redis.set(get_user_key(update, 'login_cookies'), pickle.dumps(cookies))
+                msg = 'Gib nun die Zeichen im Captcha ein.\nWenn du dich neu einloggen willst, klicke unten auf den Knopf.'
+                markup = [NEW_LOGIN_MARKUP, CANCEL_MARKUP]
+                update.message.reply_photo(photo=photo,
+                                           caption=msg,
+                                           reply_markup=ReplyKeyboardMarkup(markup))
+                return CAPTCHA
+            else:
+                msg = 'Konnte Captcha nicht laden :('
+                cookies, markup = check_login(update)
+                update.message.reply_text(msg, reply_markup=markup)
         else:
-            msg = 'Konnte Captcha nicht laden :('
             cookies, markup = check_login(update)
-            update.message.reply_text(msg, reply_markup=markup)
+            update.message.reply_text("Du bist bereits eingeloggt", reply_markup=markup)
+            return ConversationHandler.END
+
     update.message.reply_text('Um dich einzuloggen musst du leider deine Kontodaten eingeben.\n'
                               'Es ist (soweit ich weiß) noch kein <a href="https://oauth.net/">Oauth</a> für die Sitzplatzreservierung implementiert.\n'
                               'Gib nun die <b>Kontonummer</b> von deinem Bibliotheks-Konto ein:',
@@ -356,8 +375,7 @@ def login_password(update: Update, context: CallbackContext):
         update.message.delete()
     update.message.reply_chat_action(ChatAction.TYPING)
     redis.set(get_user_key(update, 'login_password'), text)
-    captcha_enabled = os.environ.get('CAPTCHA', 'false')
-    if captcha_enabled and captcha_enabled.lower() == 'true':
+    if captcha_enabled:
         return show_captcha(update, context)
     else:
         return login_captcha(update, context)
