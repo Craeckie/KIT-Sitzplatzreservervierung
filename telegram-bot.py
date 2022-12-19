@@ -402,6 +402,9 @@ def login_captcha(update: Update, context: CallbackContext):
     creds = get_user_creds(user_id)
     update.message.reply_chat_action(ChatAction.TYPING)
 
+    redis_username_key = get_user_key(update, 'login_username')
+    redis_password_key = get_user_key(update, 'login_password')
+
     text = update.message.text
     if text in CANCEL_MARKUP:
         return login_cancel(update, context)
@@ -410,12 +413,17 @@ def login_captcha(update: Update, context: CallbackContext):
         update.message.reply_text('Gib nun die Kontonummer von deinem Bibliotheks-Konto ein:',
                                   reply_markup=ReplyKeyboardMarkup([CANCEL_MARKUP]))
         return USERNAME
+    elif redis.exists(redis_username_key) and redis.exists(redis_password_key):
+        username = redis.get(redis_username_key).decode()
+        password = redis.get(redis_password_key).decode()
     elif creds:
         username = creds['user']
         password = creds['password']
     else:
-        username = redis.get(get_user_key(update, 'login_username')).decode()
-        password = redis.get(get_user_key(update, 'login_password')).decode()
+        remove_user_creds(user_id)
+        update.message.reply_text('Gib nun die Kontonummer von deinem Bibliotheks-Konto ein:',
+                                  reply_markup=ReplyKeyboardMarkup([CANCEL_MARKUP]))
+        return USERNAME
     cookies_pickle = redis.get(get_user_key(update, 'login_cookies'))
     cookies = pickle.loads(cookies_pickle) if cookies_pickle else None
     captcha = update.message.text

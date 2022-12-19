@@ -171,6 +171,7 @@ class Backend:
                     print(login_res.text)
                     data['NewUserPassword'] = '***REDACTED***'
                     print(data)
+                    print("test")
                 else:
                     # we need the library account number, even though login is possible using the Matrikelnummer
                     res = self.get_request('admin.php', cookies=login_res.cookies)
