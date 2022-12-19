@@ -346,9 +346,10 @@ def login(update: Update, context: CallbackContext):
                 cookies, markup = check_login(update)
                 update.message.reply_text(msg, reply_markup=markup)
         else:
-            cookies, markup = check_login(update)
-            update.message.reply_text("Du bist bereits eingeloggt", reply_markup=markup)
-            return ConversationHandler.END
+            cookies, markup = check_login(update, login_required=True)
+            if cookies:
+                update.message.reply_text("Du bist bereits eingeloggt", reply_markup=markup)
+                return ConversationHandler.END
 
     update.message.reply_text('Um dich einzuloggen musst du leider deine Kontodaten eingeben.\n'
                               'Es ist (soweit ich weiß) noch kein <a href="https://oauth.net/">Oauth</a> für die Sitzplatzreservierung implementiert.\n'
