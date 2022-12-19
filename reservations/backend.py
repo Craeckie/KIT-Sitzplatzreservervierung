@@ -153,21 +153,24 @@ class Backend:
             if user and password and captcha:
 
                 # Get the cookies
+                data = {
+                    'NewUserName': user.strip(),
+                    'NewUserPassword': password,
+                    'returl': self.base_url,
+                    'TargetURL': self.base_url,
+                    'Action': 'SetName',
+                    'EULA': 'on',
+                    'CaptchaText': captcha
+                }
                 login_res = self.post_request('admin.php',
-                                              data={
-                                                  'NewUserName': user.strip(),
-                                                  'NewUserPassword': password,
-                                                  'returl': self.base_url,
-                                                  'TargetURL': self.base_url,
-                                                  'Action': 'SetName',
-                                                  'EULA': 'on',
-                                                  'CaptchaText': captcha
-                                              },
+                                              data=data,
                                               cookies=cookies,
                                               allow_redirects=False)
                 if login_res.status_code == 200:
                     print(f'Login failed: {user}')
                     print(login_res.text)
+                    data['NewUserPassword'] = '***REDACTED***'
+                    print(data)
                 else:
                     # we need the library account number, even though login is possible using the Matrikelnummer
                     res = self.get_request('admin.php', cookies=login_res.cookies)
